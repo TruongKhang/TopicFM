@@ -11,7 +11,7 @@ The method first inferred the latent topics (high-level context information) for
 ## TODO List
 
 - [x] Release training and evaluation code on MegaDepth and ScanNet
-- [ ] Evaluation on HPatches, Aachen Day&Night, and InLoc
+- [x] Evaluation on HPatches, Aachen Day&Night, and InLoc
 - [ ] Evaluation for Image Matching Challenge
 
 ## Requirements
@@ -67,9 +67,21 @@ And then run this command to start training.
 
 To evaluate on these datasets, we integrate our code to the image-matching-toolbox provided by Zhou et al. (2021).
 The updated code is available [here](https://github.com/TruongKhang/image-matching-toolbox). 
-The detailed evaluation will be provided soon.
+After cloning this code, please follow instructions of image-matching-toolbox to install all required packages and prepare data for evaluation.
 
+Then, run these commands to perform evaluation: (note that all hyperparameter settings are in `configs/topicfm.yml`)
 
+**HPatches**
+
+    python -m immatch.eval_hpatches --gpu 0 --config 'topicfm' --task 'both' --h_solver 'cv' --ransac_thres 3 --root_dir . --odir 'outputs/hpatches'
+
+**Aachen Day-Night v1.1**
+
+    python -m immatch.eval_aachen --gpu 0 --config 'topicfm' --colmap <path to use colmap> --benchmark_name 'aachen_v1.1'
+
+**InLoc**
+
+    python -m immatch.eval_inloc --gpu 0 --config 'topicfm'
 
 ### Runtime comparison
 
