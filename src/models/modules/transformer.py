@@ -88,7 +88,6 @@ class TopicFormer(nn.Module):
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
-
     def sample_topic(self, prob_topics, topics, L):
         """
         Args:
@@ -102,9 +101,6 @@ class TopicFormer(nn.Module):
         theta = F.normalize(theta0 * theta1, p=1, dim=-1)
         if self.n_samples == 0:
             return None
-        #sampled_values, sampled_inds = torch.topk(theta, self.n_samples, dim=-1)
-        #nonzero_topic = sampled_values.sum(dim=-1) > 0.01
-        #sampled_inds = sampled_inds[nonzero_topic]
         if self.training:
             sampled_inds = torch.multinomial(theta, self.n_samples)
             sampled_values = torch.gather(theta, dim=-1, index=sampled_inds)

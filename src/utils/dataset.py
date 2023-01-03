@@ -8,11 +8,7 @@ import torch
 from numpy.linalg import inv
 
 
-try:
-    # for internel use only
-    from .client import MEGADEPTH_CLIENT, SCANNET_CLIENT
-except Exception:
-    MEGADEPTH_CLIENT = SCANNET_CLIENT = None
+MEGADEPTH_CLIENT = SCANNET_CLIENT = None
 
 # --- DATA IO ---
 

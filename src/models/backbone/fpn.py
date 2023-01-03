@@ -56,32 +56,19 @@ class FPN(nn.Module):
         # 3. FPN upsample
         self.layer3_outconv = conv1x1(block_dims[2], block_dims[3])
         self.layer3_outconv2 = nn.Sequential(
-            #conv3x3(block_dims[3], block_dims[3]),
-            #nn.BatchNorm2d(block_dims[3]),
-            #nn.GELU(),
             ConvBlock(block_dims[3], block_dims[2]),
             conv3x3(block_dims[2], block_dims[2]),
         )
-        #self.layer3_outconv3 = TrunkBlock(block_dims[2], block_dims[2])
         self.layer2_outconv = conv1x1(block_dims[1], block_dims[2])
         self.layer2_outconv2 = nn.Sequential(
-            #conv3x3(block_dims[2], block_dims[2]),
-            #nn.BatchNorm2d(block_dims[2]),
-            #nn.GELU(),
             ConvBlock(block_dims[2], block_dims[1]),
             conv3x3(block_dims[1], block_dims[1]),
         )
         self.layer1_outconv = conv1x1(block_dims[0], block_dims[1])
         self.layer1_outconv2 = nn.Sequential(
-            #conv3x3(block_dims[1], block_dims[1]),
-            #nn.BatchNorm2d(block_dims[1]),
-            #nn.GELU(),
-            #ConvBlock(block_dims[1], block_dims[1]),
             ConvBlock(block_dims[1], block_dims[0]),
-            #ConvBlock(block_dims[0], block_dims[0]),
             conv3x3(block_dims[0], block_dims[0]),
         )
-        #self.layer1_outconv3 = TrunkBlock(block_dims[0], block_dims[0])
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -110,7 +97,6 @@ class FPN(nn.Module):
         x4_out_2x = F.interpolate(x4, scale_factor=2., mode='bilinear', align_corners=True)
         x3_out = self.layer3_outconv(x3)
         x3_out = self.layer3_outconv2(x3_out+x4_out_2x)
-        #x3_out_norm = self.layer3_outconv3(x3_out)
 
         x3_out_2x = F.interpolate(x3_out, scale_factor=2., mode='bilinear', align_corners=True)
         x2_out = self.layer2_outconv(x2)
@@ -119,6 +105,5 @@ class FPN(nn.Module):
         x2_out_2x = F.interpolate(x2_out, scale_factor=2., mode='bilinear', align_corners=True)
         x1_out = self.layer1_outconv(x1)
         x1_out = self.layer1_outconv2(x1_out+x2_out_2x)
-        #x1_out_norm = self.layer1_outconv3(x1_out)
 
         return [x3_out, x1_out]
