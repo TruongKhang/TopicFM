@@ -10,14 +10,8 @@ from kornia.utils.grid import create_meshgrid
 class FineMatching(nn.Module):
     """FineMatching with s2d paradigm"""
 
-    def __init__(self): #, ww, c):
+    def __init__(self):
         super().__init__()
-        """self.fc = nn.Sequential(nn.Linear(ww*c, ww*c//4, bias=False),
-                                # nn.LayerNorm(ww*c//8),
-                                nn.GELU(),
-                                nn.Linear(ww*c//4, ww*c//16, bias=False),
-                                nn.GELU(),
-                                nn.Linear(ww*c//16, ww, bias=False))"""
 
     def forward(self, feat_f0, feat_f1, data):
         """
@@ -47,21 +41,13 @@ class FineMatching(nn.Module):
             })
             return
 
-        """score_map0 = self.fc(feat_f0.reshape(M, -1))
-        if self.training:
-            prob_map0 = F.gumbel_softmax(score_map0, tau=0.1, hard=True)
-            # feat_f0_picked = (feat_f0 * prob_map0.unsqueeze(-1)).sum(dim=1) #feat_f0[:, WW//2, :]
-        else:
-            prob_map0 = F.softmax(score_map0 / 0.1, dim=-1)"""
-            # selected_ids = torch.argmax(score_map0, dim=-1, keepdim=True)
-            # feat_f0_picked = torch.gather(feat_f0, dim=1, index=selected_ids.unsqueeze(-1).repeat(1, 1, C))
-            # feat_f0_picked = feat_f0_picked.squeeze(1)
-        feat_f0_picked = feat_f0[:, WW//2, :] #(feat_f0 * prob_map0.unsqueeze(-1)).sum(dim=1)
-        #coords0_normed = dsnt.spatial_expectation2d(prob_map0.detach().view(1, -1, W, W), True)[0]
+        feat_f0_picked = feat_f0[:, WW//2, :]
 
         sim_matrix = torch.einsum('mc,mrc->mr', feat_f0_picked, feat_f1)
         softmax_temp = 1. / C**.5
-        heatmap = torch.softmax(softmax_temp * sim_matrix, dim=1).view(-1, W, W)
+        heatmap = torch.softmax(softmax_temp * sim_matrix, dim=1)
+        feat_f1_picked = (feat_f1 * heatmap.unsqueeze(-1)).sum(dim=1) # [M, C]
+        heatmap = heatmap.view(-1, W, W)
 
         # compute coordinates from heatmap
         coords1_normalized = dsnt.spatial_expectation2d(heatmap[None], True)[0]  # [M, 2]
@@ -72,7 +58,8 @@ class FineMatching(nn.Module):
         std = torch.sum(torch.sqrt(torch.clamp(var, min=1e-10)), -1)  # [M]  clamp needed for numerical stability
         
         # for fine-level supervision
-        data.update({'expec_f': torch.cat([coords1_normalized, std.unsqueeze(1)], -1)})
+        data.update({'expec_f': torch.cat([coords1_normalized, std.unsqueeze(1)], -1),
+                     'descriptors0': feat_f0_picked.detach(), 'descriptors1': feat_f1_picked.detach()})
 
         # compute absolute kpt coords
         self.get_fine_match(coords1_normalized, data)

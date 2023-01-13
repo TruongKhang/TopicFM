@@ -84,14 +84,10 @@ class CoarseMatching(nn.Module):
         else:
             raise NotImplementedError()
 
-    def forward(self, feat_c0, feat_c1, data, mask_c0=None, mask_c1=None):
+    def forward(self, data):
         """
         Args:
-            feat0 (torch.Tensor): [N, L, C]
-            feat1 (torch.Tensor): [N, S, C]
             data (dict)
-            mask_c0 (torch.Tensor): [N, L] (optional)
-            mask_c1 (torch.Tensor): [N, S] (optional)
         Update:
             data (dict): {
                 'b_ids' (torch.Tensor): [M'],

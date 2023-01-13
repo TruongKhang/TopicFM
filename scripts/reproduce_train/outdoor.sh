@@ -7,10 +7,7 @@ PROJECT_DIR="${SCRIPTPATH}/../../"
 export PYTHONPATH=$PROJECT_DIR:$PYTHONPATH
 cd $PROJECT_DIR
 
-TRAIN_IMG_SIZE=640
-# to reproduced the results in our paper, please use:
-# TRAIN_IMG_SIZE=840
-data_cfg_path="configs/data/megadepth_trainval_${TRAIN_IMG_SIZE}.py"
+data_cfg_path="configs/data/megadepth_trainval.py"
 main_cfg_path="configs/model/outdoor/model_ds.py"
 
 n_nodes=1
@@ -18,7 +15,7 @@ n_gpus_per_node=4
 torch_num_workers=4
 batch_size=1
 pin_memory=true
-exp_name="outdoor-ds-${TRAIN_IMG_SIZE}-bs=$(($n_gpus_per_node * $n_nodes * $batch_size))"
+exp_name="outdoor-bs=$(($n_gpus_per_node * $n_nodes * $batch_size))"
 
 python -u ./train.py \
     ${data_cfg_path} \
