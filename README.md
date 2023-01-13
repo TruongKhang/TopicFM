@@ -12,7 +12,7 @@ The method first inferred the latent topics (high-level context information) for
 
 - [x] Release training and evaluation code on MegaDepth and ScanNet
 - [x] Evaluation on HPatches, Aachen Day&Night, and InLoc
-- [ ] Evaluation for Image Matching Challenge
+- [x] Evaluation for Image Matching Challenge
 
 ## Requirements
 
@@ -55,11 +55,11 @@ And then run this command to start training.
  We then provide the trained model in `pretrained/model_best.ckpt`
 ## Evaluation
 
-### MegaDepth
+### MegaDepth (relative pose estimation)
 
     bash scripts/reproduce_test/outdoor.sh
 
-### ScanNet
+### ScanNet (relative pose estimation)
 
     bash scripts/reproduce_test/indoor.sh
 
@@ -71,17 +71,33 @@ After cloning this code, please follow instructions of image-matching-toolbox to
 
 Then, run these commands to perform evaluation: (note that all hyperparameter settings are in `configs/topicfm.yml`)
 
-**HPatches**
+**HPatches (homography estimation)**
 
     python -m immatch.eval_hpatches --gpu 0 --config 'topicfm' --task 'both' --h_solver 'cv' --ransac_thres 3 --root_dir . --odir 'outputs/hpatches'
 
-**Aachen Day-Night v1.1**
+**Aachen Day-Night v1.1 (visual localization)**
 
     python -m immatch.eval_aachen --gpu 0 --config 'topicfm' --colmap <path to use colmap> --benchmark_name 'aachen_v1.1'
 
-**InLoc**
+**InLoc (visual localization)**
 
     python -m immatch.eval_inloc --gpu 0 --config 'topicfm'
+
+### Image Matching Challenge 2022 (IMC-2022)
+IMC-2022 was held on [Kaggle](https://www.kaggle.com/competitions/image-matching-challenge-2022/overview). 
+Most high ranking methods were achieved by using an ensemble method which combines the matching results of 
+various state-of-the-art methods including LoFTR, SuperPoint+SuperGlue, MatchFormer, or QuadTree Attention.
+
+In this evaluation, we only submit the results produced by our method (TopicFM) alone. Please refer to [this notebook](https://www.kaggle.com/code/khangtg09121995/topicfm-eval).
+This table compares our results with the other methods such as LoFTR (ref. [here](https://www.kaggle.com/code/mcwema/imc-2022-kornia-loftr-score-plateau-0-726)), 
+SP+SuperGlue (ref. [here](https://www.kaggle.com/code/yufei12/superglue-baseline)).
+
+|                | Public Score | Private Score |
+|----------------|--------------|---------------|
+| SP + SuperGlue | 0.678        | 0.677         |
+| LoFTR          | 0.726        | 0.736         |
+| TopicFM (ours) | **0.804**    | **0.811**     |
+
 
 ### Runtime comparison
 
