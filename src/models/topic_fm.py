@@ -62,7 +62,7 @@ class TopicFM(nn.Module):
         data.update({"conf_matrix": conf_matrix, "topic_matrix": topic_matrix}) ######
 
         # 3. match coarse-level
-        self.coarse_matching(feat_c0, feat_c1, data, mask_c0=mask_c0, mask_c1=mask_c1)
+        self.coarse_matching(data)
 
         # 4. fine-level refinement
         feat_f0_unfold, feat_f1_unfold = self.fine_preprocess(feat_f0, feat_f1, feat_c0.detach(), feat_c1.detach(), data)
