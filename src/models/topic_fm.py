@@ -3,7 +3,7 @@ import torch.nn as nn
 from einops.einops import rearrange
 
 from .backbone import build_backbone
-from .modules import LocalFeatureTransformer, FinePreprocess, TopicFormer
+from .modules import FineNetwork, FinePreprocess, TopicFormer
 from .utils.coarse_matching import CoarseMatching
 from .utils.fine_matching import FineMatching
 
@@ -20,7 +20,7 @@ class TopicFM(nn.Module):
         self.loftr_coarse = TopicFormer(config['coarse'])
         self.coarse_matching = CoarseMatching(config['match_coarse'])
         self.fine_preprocess = FinePreprocess(config)
-        self.loftr_fine = LocalFeatureTransformer(config["fine"])
+        self.loftr_fine = FineNetwork(config["fine"])
         self.fine_matching = FineMatching()
 
     def forward(self, data):
