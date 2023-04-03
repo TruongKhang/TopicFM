@@ -14,8 +14,8 @@ def parse_args():
     # init a costum parser which will be added into pl.Trainer parser
     # check documentation: https://pytorch-lightning.readthedocs.io/en/latest/common/trainer.html#trainer-flags
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument(
-        'data_cfg_path', type=str, help='data config path')
+    # parser.add_argument(
+    #     'data_cfg_path', type=str, help='data config path')
     parser.add_argument(
         'main_cfg_path', type=str, help='main config path')
     parser.add_argument(
@@ -43,7 +43,7 @@ if __name__ == '__main__':
     # init default-cfg and merge it with the main- and data-cfg
     config = get_cfg_defaults()
     config.merge_from_file(args.main_cfg_path)
-    config.merge_from_file(args.data_cfg_path)
+    # config.merge_from_file(args.data_cfg_path)
     pl.seed_everything(config.TRAINER.SEED)  # reproducibility
 
     # tune when testing

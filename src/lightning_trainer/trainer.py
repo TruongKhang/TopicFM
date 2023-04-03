@@ -25,7 +25,7 @@ from src.utils.profiler import PassThroughProfiler
 
 
 class PL_Trainer(pl.LightningModule):
-    def __init__(self, config, pretrained_ckpt=None, profiler=None, dump_dir=None):
+    def __init__(self, config, pretrained_ckpt=None, profiler=None, dump_dir=None, epoch_start=0):
         """
         TODO:
             - use the new version of PL logging API.
@@ -37,6 +37,7 @@ class PL_Trainer(pl.LightningModule):
         self.model_cfg = lower_config(_config['model'])
         self.profiler = profiler or PassThroughProfiler()
         self.n_vals_plot = max(config.TRAINER.N_VAL_PAIRS_TO_PLOT // config.TRAINER.WORLD_SIZE, 1)
+        self.epoch_start = epoch_start
 
         # Matcher: TopicFM
         self.matcher = TopicFM(config=_config['model'])
@@ -57,9 +58,7 @@ class PL_Trainer(pl.LightningModule):
         scheduler = build_scheduler(self.config, optimizer)
         return [optimizer], [scheduler]
     
-    def optimizer_step(
-            self, epoch, batch_idx, optimizer, optimizer_idx,
-            optimizer_closure, on_tpu, using_native_amp, using_lbfgs):
+    def optimizer_step(self, epoch, batch_idx, optimizer, optimizer_idx, optimizer_closure, on_tpu, using_lbfgs):
         # learning rate warm up
         warmup_step = self.config.TRAINER.WARMUP_STEP
         if self.trainer.global_step < warmup_step:
@@ -80,6 +79,7 @@ class PL_Trainer(pl.LightningModule):
         optimizer.zero_grad()
     
     def _trainval_inference(self, batch):
+        batch["epoch_idx"] = self.trainer.current_epoch + self.epoch_start
         with self.profiler.profile("Compute coarse supervision"):
             compute_supervision_coarse(batch, self.config)
         
@@ -158,7 +158,7 @@ class PL_Trainer(pl.LightningModule):
         for valset_idx, outputs in enumerate(multi_outputs):
             # since pl performs sanity_check at the very begining of the training
             cur_epoch = self.trainer.current_epoch
-            if not self.trainer.resume_from_checkpoint and self.trainer.running_sanity_check:
+            if not self.trainer.resume_from_checkpoint and self.trainer.sanity_checking:
                 cur_epoch = -1
 
             # 1. loss_scalars: dict of list, on cpu
@@ -195,11 +195,11 @@ class PL_Trainer(pl.LightningModule):
 
         for thr in [5, 10, 20]:
             # log on all ranks for ModelCheckpoint callback to work properly
-            self.log(f'auc@{thr}', torch.tensor(np.mean(multi_val_metrics[f'auc@{thr}'])))  # ckpt monitors on this
+            self.log(f'auc@{thr}', torch.tensor(np.mean(multi_val_metrics[f'auc@{thr}'])), sync_dist=True)  # ckpt monitors on this
 
     def test_step(self, batch, batch_idx):
         with self.profiler.profile("TopicFM"):
-            self.matcher(batch)
+           self.matcher(batch)
 
         ret_dict, rel_pair_names = self._compute_metrics(batch)
 
