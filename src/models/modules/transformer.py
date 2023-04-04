@@ -61,6 +61,35 @@ class LoFTREncoderLayer(nn.Module):
         return x + message
 
 
+class EncoderBlock(nn.Module):
+    def __init__(self, dim1, dim2):
+        super(EncoderBlock, self).__init__()
+
+        self.mlp1 = nn.Sequential(nn.Linear(dim1, dim1),
+                                      nn.GELU(),
+                                      nn.Linear(dim1, dim1))
+        self.mlp2 = nn.Sequential(nn.Linear(dim2, dim2),
+                                      nn.GELU(),
+                                      nn.Linear(dim2, dim2))
+        self.norm1 = nn.LayerNorm(dim2)
+        self.norm2 = nn.LayerNorm(dim2)
+
+    def forward(self, x):
+        """
+        Args:
+            x (torch.Tensor): [N, L, C]
+            x_mask (torch.Tensor): [N, L] (optional)
+        """
+
+        # message = self.norm1(x)
+        message = self.mlp1(x.permute(0, 2, 1))  # [N, C, L]
+        x = x + self.norm1(message.permute(0, 2, 1))  # [N, L, C]
+        message = self.norm2(self.mlp2(x))  # [N, L, C]
+
+        return x + message
+
+
+
 class TopicFormer(nn.Module):
     """A Local Feature Transformer (LoFTR) module."""
 
@@ -196,8 +225,7 @@ class TopicFormer(nn.Module):
         return feat0, feat1, conf_matrix, topic_matrix
 
 
-class LocalFeatureTransformer(nn.Module):
-    """A Local Feature Transformer (LoFTR) module."""
+"""class LocalFeatureTransformer(nn.Module):
 
     def __init__(self, config):
         super(LocalFeatureTransformer, self).__init__()
@@ -216,6 +244,35 @@ class LocalFeatureTransformer(nn.Module):
                 nn.init.xavier_uniform_(p)
 
     def forward(self, feat0, feat1, mask0=None, mask1=None):
+
+        assert self.d_model == feat0.shape[2], "the feature number of src and transformer must be equal"
+
+        feat0 = self.layers[0](feat0, feat1, mask0, mask1)
+        feat1 = self.layers[1](feat1, feat0, mask1, mask0)
+
+        return feat0, feat1"""
+
+
+class FineNetwork(nn.Module):
+
+    def __init__(self, config):
+        super(FineNetwork, self).__init__()
+
+        self.config = config
+        self.d_model = config['d_model']
+        self.nhead = config['nhead']
+        self.layer_names = config['layer_names']
+        self.n_mlp_mixer_blocks = config["n_mlp_mixer_blocks"]
+        self.encoder_layers = nn.ModuleList([EncoderBlock(config["n_feats"]*2, self.d_model) for _ in range(self.n_mlp_mixer_blocks)])
+
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
+
+    def forward(self, feat0, feat1, mask0=None, mask1=None):
         """
         Args:
             feat0 (torch.Tensor): [N, L, C]
@@ -226,7 +283,10 @@ class LocalFeatureTransformer(nn.Module):
 
         assert self.d_model == feat0.shape[2], "the feature number of src and transformer must be equal"
 
-        feat0 = self.layers[0](feat0, feat1, mask0, mask1)
-        feat1 = self.layers[1](feat1, feat0, mask1, mask0)
+        feat = torch.cat((feat0, feat1), dim=1)
+        for idx in range(self.n_mlp_mixer_blocks):
+            feat = self.encoder_layers[idx](feat)
+        feat0, feat1 = feat[:, :feat0.shape[1]], feat[:, feat0.shape[1]:]
 
         return feat0, feat1
+

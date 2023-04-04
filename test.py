@@ -1,3 +1,4 @@
+import torch
 import pytorch_lightning as pl
 import argparse
 import pprint
@@ -62,7 +63,8 @@ if __name__ == '__main__':
     loguru_logger.info(f"DataModule initialized!")
 
     # lightning trainer
-    trainer = pl.Trainer.from_argparse_args(args, replace_sampler_ddp=False, logger=False)
+    trainer = pl.Trainer.from_argparse_args(args, replace_sampler_ddp=False, logger=False, inference_mode=False)
 
     loguru_logger.info(f"Start testing!")
-    trainer.test(model, datamodule=data_module, verbose=False)
+    with torch.no_grad():
+        trainer.test(model, datamodule=data_module, verbose=False)
