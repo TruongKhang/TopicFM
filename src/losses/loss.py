@@ -39,13 +39,16 @@ class TopicFMLoss(nn.Module):
         # fine-level
         self.fine_type = self.loss_config['fine_type']
 
-    def compute_coarse_loss(self, conf, topic_mat, conf_gt, match_ids=None, weight=None):
+    def compute_coarse_loss(self, data, match_ids=None, weight=None):
         """ Point-wise CE / Focal Loss with 0 / 1 confidence as gt.
         Args:
             conf (torch.Tensor): (N, HW0, HW1) / (N, HW0+1, HW1+1)
             conf_gt (torch.Tensor): (N, HW0, HW1)
             weight (torch.Tensor): (N, HW0, HW1)
         """
+        conf, conf_gt = data['conf_matrix'], data['conf_matrix_gt']
+        topic_mat = data['topic_matrix']
+
         pos_mask = conf_gt == 1
         neg_mask = sample_non_matches(pos_mask, match_ids=match_ids)
         c_pos_w, c_neg_w = self.c_pos_w, self.c_neg_w
@@ -84,6 +87,12 @@ class TopicFMLoss(nn.Module):
             loss_pos = loss_pos * weight[pos_mask]
 
         loss = loss + c_pos_w * loss_pos.mean()
+
+        if "geo_conf_pairs" in data:
+            # geometric loss
+            geo_conf_pairs, valid_pairs = data["geo_conf_pairs"], data["valid_pairs"]
+            loss_geo = - alpha * torch.log(geo_conf_pairs[valid_pairs] + 1e-5)
+            loss = loss + loss_geo.mean()
 
         return loss
         
@@ -163,9 +172,8 @@ class TopicFMLoss(nn.Module):
         c_weight = self.compute_c_weight(data)
 
         # 1. coarse-level loss
-        loss_c = self.compute_coarse_loss(data['conf_matrix'], data['topic_matrix'],
-            data['conf_matrix_gt'], match_ids=(data['spv_b_ids'], data['spv_i_ids'], data['spv_j_ids']),
-            weight=c_weight)
+        loss_c = self.compute_coarse_loss(data, match_ids=(data['spv_b_ids'], data['spv_i_ids'], data['spv_j_ids']),
+                                          weight=c_weight)
         loss = loss_c * self.loss_config['coarse_weight']
         loss_scalars.update({"loss_c": loss_c.clone().detach().cpu()})
 

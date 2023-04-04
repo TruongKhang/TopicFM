@@ -3,6 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from einops.einops import rearrange
 
+from src.models.modules import LoFTREncoderLayer
+
 INF = 1e9
 
 def mask_border(m, b: int, v):
@@ -67,22 +69,64 @@ class CoarseMatching(nn.Module):
         self.train_coarse_percent = config['train_coarse_percent']
         self.train_pad_num_gt_min = config['train_pad_num_gt_min']
 
-        # we provide 2 options for differentiable matching
-        self.match_type = config['match_type']
-        if self.match_type == 'dual_softmax':
-            self.temperature = config['dsmax_temperature']
-        elif self.match_type == 'sinkhorn':
-            try:
-                from .superglue import log_optimal_transport
-            except ImportError:
-                raise ImportError("download superglue.py first!")
-            self.log_optimal_transport = log_optimal_transport
-            self.bin_score = nn.Parameter(
-                torch.tensor(config['skh_init_bin_score'], requires_grad=True))
-            self.skh_iters = config['skh_iters']
-            self.skh_prefilter = config['skh_prefilter']
+        self.num_coarse_matches = config["num_coarse_matches"]
+        self.geometric_verify = config["geo_match"]
+        if config["geo_match"]:
+            # geometric verification
+            self.rel_pos_enc = nn.Sequential(nn.Linear(2, 256, bias=True),
+                                             nn.ReLU(inplace=True),
+                                             nn.Linear(256, 256, bias=False))
+            self.n_atten_iters = 2
+            self.attn_enc = nn.ModuleList([LoFTREncoderLayer(256, 4, attention='linear')
+                                           for _ in range(self.n_atten_iters * 2)])
+
+    def geo_match(self, b_ids, i_ids, j_ids, data, num_pairs=None):
+        device, dtype = b_ids.device, data["image0"].dtype
+        mkpts0_c = torch.stack(
+            [i_ids % data['hw0_c'][1], torch.div(i_ids, data['hw0_c'][1], rounding_mode="floor")], dim=1).to(dtype)
+        mkpts1_c = torch.stack(
+            [j_ids % data['hw1_c'][1], torch.div(j_ids, data['hw1_c'][1], rounding_mode="floor")], dim=1).to(dtype)
+        if num_pairs is not None:
+            coords0 = torch.zeros((data["bs"], num_pairs, 2), device=device, dtype=dtype)
+            coords1 = torch.zeros_like(coords0)
+            mask0, mask1 = torch.zeros_like(coords0[..., 0]), torch.zeros_like(coords1[..., 0])
+
+            for bidx in range(data["bs"]):
+                mask_b_ids = (b_ids == bidx)
+                mkpts0_bidx, mkpts1_bidx = mkpts0_c[mask_b_ids], mkpts1_c[mask_b_ids]
+
+                if len(mkpts0_bidx) > num_pairs:
+                    random_ids = torch.multinomial(torch.ones_like(mkpts0_bidx[:, 0]), num_pairs, replacement=False)
+                    mkpts0_bidx, mkpts1_bidx = mkpts0_bidx[random_ids], mkpts1_bidx[random_ids]
+
+                coords0[bidx][:len(mkpts0_bidx)] += mkpts0_bidx
+                mask0[bidx][:len(mkpts0_bidx)] = 1.0
+                coords1[bidx][:len(mkpts1_bidx)] += mkpts1_bidx
+                mask1[bidx][:len(mkpts1_bidx)] = 1.0
         else:
-            raise NotImplementedError()
+            coords0, coords1 = mkpts0_c.unsqueeze(0).to(dtype), mkpts1_c.unsqueeze(1).to(dtype)
+            mask0, mask1 = torch.ones_like(coords0[:, :, 0]), torch.ones_like(coords1[:, :, 0])
+
+        # normalize coordinate
+        scale0_c2o = data["scale0"] * data['hw0_i'][0] / data['hw0_c'][0]
+        scale1_c2o = data["scale1"] * data['hw1_i'][0] / data['hw1_c'][0]
+        norm_coords0 = self.norm_coords(coords0, data["K0"], scale0_c2o)
+        norm_coords1 = self.norm_coords(coords1, data["K1"], scale1_c2o)
+        geo_feat0, geo_feat1 = self.rel_pos_enc(norm_coords0), self.rel_pos_enc(norm_coords1)
+        for idx in self.n_attn_iters:
+            geo_feat0 = self.attn_enc[idx*2](geo_feat0, geo_feat0, mask0, mask0)
+            geo_feat1 = self.attn_enc[idx*2](geo_feat1, geo_feat1, mask1, mask1)
+            geo_feat0 = self.attn_enc[idx*2+1](geo_feat0, geo_feat1, mask0, mask1)
+            geo_feat1 = self.attn_enc[idx*2+1](geo_feat1, geo_feat0, mask1, mask0)
+
+        geo_match_matrix = torch.einsum("bmd,bnd->bmn", geo_feat0 / 16, geo_feat1 / 16) * 16
+        valid_geo_mask = (mask0[..., None] * mask1[:, None]).bool()
+        geo_match_matrix.masked_fill_(~valid_geo_mask, -1e4)
+        geo_conf_matrix = F.softmax(geo_match_matrix, dim=1) * F.softmax(geo_match_matrix, dim=2)
+        geo_conf_pairs = geo_conf_matrix[:, range(coords0.shape[1]), range(coords0.shape[1])]
+        valid_pairs = mask0.bool()
+
+        return geo_conf_pairs, valid_pairs, coords0, coords1
 
     def forward(self, data):
         """
@@ -100,6 +144,12 @@ class CoarseMatching(nn.Module):
             NOTE: M' != M during training.
         """
         conf_matrix = data['conf_matrix']
+        if self.training and self.geometric_verify:
+            gt_b_ids, gt_i_ids, gt_j_ids = data['spv_b_ids'], data['spv_i_ids'], data['spv_j_ids']
+            geo_conf_pairs, valid_pairs, _, _ = self.geo_match(gt_b_ids, gt_i_ids, gt_j_ids, data,
+                                                               num_pairs=self.num_coarse_matches)
+
+            data.update({"geo_conf_pairs": geo_conf_pairs, "valid_pairs": valid_pairs})
         # predict coarse matches from conf_matrix
         data.update(**self.get_coarse_match(conf_matrix, data))
 
@@ -150,6 +200,18 @@ class CoarseMatching(nn.Module):
         b_ids, i_ids = torch.where(mask_v)
         j_ids = all_j_ids[b_ids, i_ids]
         mconf = conf_matrix[b_ids, i_ids, j_ids]
+
+        if self.geometric_verify:
+            # geometric refinement
+            geo_conf_pairs, valid_pairs, m_coords0, m_coords1 = self.geo_match(b_ids, i_ids, j_ids, data,
+                                                                               num_pairs=self.num_coarse_matches)
+            # geo_conf_pairs = geo_conf_mat[:, range(m_coords0.shape[1]), range(m_coords0.shape[1])]
+            geo_mask = (geo_conf_pairs > 0.2) & valid_pairs
+            b_ids, _ = torch.nonzero(geo_mask, as_tuple=True)
+            mconf = geo_conf_pairs[geo_mask]
+            out_coords0, out_coords1 = m_coords0[geo_mask], m_coords1[geo_mask]
+            i_ids = (out_coords0[:, 0] + out_coords0[:, 1] * data["hw0_c"][1]).long()
+            j_ids = (out_coords1[:, 0] + out_coords1[:, 1] * data["hw1_c"][1]).long()
 
         # 4. Random sampling of training samples for fine-level LoFTR
         # (optional) pad samples with gt coarse-level matches
