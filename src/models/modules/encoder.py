@@ -102,7 +102,8 @@ class TopicFormer(nn.Module):
         encoder_layer = LoFTREncoderLayer(config['d_model'], config['nhead'], config['attention'])
         self.layers = nn.ModuleList([copy.deepcopy(encoder_layer) for _ in range(len(self.layer_names))])
 
-        self.topic_transformers = nn.ModuleList([copy.deepcopy(encoder_layer) for _ in range(2*config['n_topic_transformers'])]) if config['n_samples'] > 0 else None #nn.ModuleList([copy.deepcopy(encoder_layer) for _ in range(2)])
+        # if config['n_samples'] > 0:
+        self.feat_aug = nn.ModuleList([copy.deepcopy(encoder_layer) for _ in range(2*config['n_topic_transformers'])])
         self.n_iter_topic_transformer = config['n_topic_transformers']
 
         self.seed_tokens = nn.Parameter(torch.randn(config['n_topics'], config['d_model']))
@@ -199,15 +200,19 @@ class TopicFormer(nn.Module):
                     new_feat0, new_mask0, selected_ids0 = self.reduce_feat(feat0, topick0, N, C)
                     new_feat1, new_mask1, selected_ids1 = self.reduce_feat(feat1, topick1, N, C)
                     for idt in range(self.n_iter_topic_transformer):
-                        new_feat0 = self.topic_transformers[idt*2](new_feat0, new_feat0, new_mask0, new_mask0)
-                        new_feat1 = self.topic_transformers[idt*2](new_feat1, new_feat1, new_mask1, new_mask1)
-                        new_feat0 = self.topic_transformers[idt*2+1](new_feat0, new_feat1, new_mask0, new_mask1)
-                        new_feat1 = self.topic_transformers[idt*2+1](new_feat1, new_feat0, new_mask1, new_mask0)
+                        new_feat0 = self.feat_aug[idt*2](new_feat0, new_feat0, new_mask0, new_mask0)
+                        new_feat1 = self.feat_aug[idt*2](new_feat1, new_feat1, new_mask1, new_mask1)
+                        new_feat0 = self.feat_aug[idt*2+1](new_feat0, new_feat1, new_mask0, new_mask1)
+                        new_feat1 = self.feat_aug[idt*2+1](new_feat1, new_feat0, new_mask1, new_mask0)
                     updated_feat0[selected_ids0, :] = new_feat0[new_mask0, :]
                     updated_feat1[selected_ids1, :] = new_feat1[new_mask1, :]
 
             feat0 = (1 - s_topics0.sum(dim=-1, keepdim=True)) * feat0 + updated_feat0
             feat1 = (1 - s_topics1.sum(dim=-1, keepdim=True)) * feat1 + updated_feat1
+        else:
+            for idt in range(self.n_iter_topic_transformer * 2):
+                feat0 = self.feat_aug[idt](feat0, seeds, mask0, None)
+                feat1 = self.feat_aug[idt](feat1, seeds, mask1, None)
 
         conf_matrix = torch.einsum("nlc,nsc->nls", feat0, feat1) / C**.5 #(C * temperature)
         if self.training:
