@@ -17,10 +17,10 @@ class TopicFM(nn.Module):
         # Modules
         self.backbone = build_backbone(config)
 
-        self.loftr_coarse = TopicFormer(config['coarse'])
+        self.coarse_net = TopicFormer(config['coarse'])
         self.coarse_matching = CoarseMatching(config['match_coarse'])
         self.fine_preprocess = FinePreprocess(config)
-        self.loftr_fine = FineNetwork(config["fine"])
+        self.fine_net = FineNetwork(config["fine"])
         self.fine_matching = FineMatching()
 
     def forward(self, data):
@@ -58,7 +58,7 @@ class TopicFM(nn.Module):
         if 'mask0' in data:
             mask_c0, mask_c1 = data['mask0'].flatten(-2), data['mask1'].flatten(-2)
 
-        feat_c0, feat_c1, conf_matrix, topic_matrix = self.loftr_coarse(feat_c0, feat_c1, mask_c0, mask_c1)
+        feat_c0, feat_c1, conf_matrix, topic_matrix = self.coarse_net(feat_c0, feat_c1, mask_c0, mask_c1)
         data.update({"conf_matrix": conf_matrix, "topic_matrix": topic_matrix}) ######
 
         # 3. match coarse-level
@@ -67,7 +67,7 @@ class TopicFM(nn.Module):
         # 4. fine-level refinement
         feat_f0_unfold, feat_f1_unfold = self.fine_preprocess(feat_f0, feat_f1, feat_c0.detach(), feat_c1.detach(), data)
         if feat_f0_unfold.size(0) != 0:  # at least one coarse level predicted
-            feat_f0_unfold, feat_f1_unfold = self.loftr_fine(feat_f0_unfold, feat_f1_unfold)
+            feat_f0_unfold, feat_f1_unfold = self.fine_net(feat_f0_unfold, feat_f1_unfold)
 
         # 5. match fine-level
         self.fine_matching(feat_f0_unfold, feat_f1_unfold, data)

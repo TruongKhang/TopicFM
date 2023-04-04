@@ -61,9 +61,9 @@ class LoFTREncoderLayer(nn.Module):
         return x + message
 
 
-class EncoderBlock(nn.Module):
+class MLPMixerEncoderLayer(nn.Module):
     def __init__(self, dim1, dim2):
-        super(EncoderBlock, self).__init__()
+        super(MLPMixerEncoderLayer, self).__init__()
 
         self.mlp1 = nn.Sequential(nn.Linear(dim1, dim1),
                                       nn.GELU(),
@@ -87,7 +87,6 @@ class EncoderBlock(nn.Module):
         message = self.norm2(self.mlp2(x))  # [N, L, C]
 
         return x + message
-
 
 
 class TopicFormer(nn.Module):
@@ -225,34 +224,6 @@ class TopicFormer(nn.Module):
         return feat0, feat1, conf_matrix, topic_matrix
 
 
-"""class LocalFeatureTransformer(nn.Module):
-
-    def __init__(self, config):
-        super(LocalFeatureTransformer, self).__init__()
-
-        self.config = config
-        self.d_model = config['d_model']
-        self.nhead = config['nhead']
-        self.layer_names = config['layer_names']
-        encoder_layer = LoFTREncoderLayer(config['d_model'], config['nhead'], config['attention'])
-        self.layers = nn.ModuleList([copy.deepcopy(encoder_layer) for _ in range(2)]) #len(self.layer_names))])
-        self._reset_parameters()
-
-    def _reset_parameters(self):
-        for p in self.parameters():
-            if p.dim() > 1:
-                nn.init.xavier_uniform_(p)
-
-    def forward(self, feat0, feat1, mask0=None, mask1=None):
-
-        assert self.d_model == feat0.shape[2], "the feature number of src and transformer must be equal"
-
-        feat0 = self.layers[0](feat0, feat1, mask0, mask1)
-        feat1 = self.layers[1](feat1, feat0, mask1, mask0)
-
-        return feat0, feat1"""
-
-
 class FineNetwork(nn.Module):
 
     def __init__(self, config):
@@ -263,7 +234,8 @@ class FineNetwork(nn.Module):
         self.nhead = config['nhead']
         self.layer_names = config['layer_names']
         self.n_mlp_mixer_blocks = config["n_mlp_mixer_blocks"]
-        self.encoder_layers = nn.ModuleList([EncoderBlock(config["n_feats"]*2, self.d_model) for _ in range(self.n_mlp_mixer_blocks)])
+        self.encoder_layers = nn.ModuleList([MLPMixerEncoderLayer(config["n_feats"]*2, self.d_model)
+                                             for _ in range(self.n_mlp_mixer_blocks)])
 
         self._reset_parameters()
 

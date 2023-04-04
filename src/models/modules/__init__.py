@@ -1,2 +1,2 @@
-from .transformer import FineNetwork, TopicFormer
+from .encoder import FineNetwork, TopicFormer
 from .fine_preprocess import FinePreprocess
