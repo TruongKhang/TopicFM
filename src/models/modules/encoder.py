@@ -217,10 +217,10 @@ class TopicFormer(nn.Module):
         conf_matrix = torch.einsum("nlc,nsc->nls", feat0, feat1) / C**.5 #(C * temperature)
         if self.training:
             topic_matrix = torch.einsum("nlk,nsk->nls", prob_topics[:, :L], prob_topics[:, L:])
-            outlier_mask = torch.einsum("nlk,nsk->nls", feat_topics[:, :L], feat_topics[:, L:])
+            # outlier_mask = torch.einsum("nlk,nsk->nls", feat_topics[:, :L], feat_topics[:, L:])
         else:
             topic_matrix = {"img0": feat_topics[:, :L], "img1": feat_topics[:, L:]}
-            outlier_mask = torch.ones_like(conf_matrix)
+        outlier_mask = torch.ones_like(conf_matrix)
         if mask0 is not None:
             outlier_mask = (outlier_mask * mask0[..., None] * mask1[:, None]) #.bool()
         conf_matrix.masked_fill_(~outlier_mask.bool(), -1e9)

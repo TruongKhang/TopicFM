@@ -128,6 +128,14 @@ class CoarseMatching(nn.Module):
 
         return geo_conf_pairs, valid_pairs, coords0, coords1
 
+    def norm_coords(self, coords, K, scale):
+        coords = coords * scale.unsqueeze(1)
+        homo_coords = torch.cat((coords, torch.ones_like(coords[:, :, [0]])), dim=-1)
+        homo_coords = homo_coords.permute(0, 2, 1)
+        normed_coords = torch.inverse(K) @ homo_coords
+        normed_coords = normed_coords.permute(0, 2, 1)
+        return normed_coords[:, :, :2]
+
     def forward(self, data):
         """
         Args:

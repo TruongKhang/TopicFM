@@ -30,7 +30,7 @@ class TopicFMLoss(nn.Module):
         super().__init__()
         self.config = config  # config under the global namespace
         self.loss_config = config['model']['loss']
-        self.match_type = self.config['model']['match_coarse']['match_type']
+        # self.match_type = self.config['model']['match_coarse']['match_type']
         
         # coarse-level
         self.correct_thr = self.loss_config['fine_correct_thr']
