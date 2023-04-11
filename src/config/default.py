@@ -63,7 +63,7 @@ _CN.MODEL.LOSS.NEG_WEIGHT = 1.0
 # use `_CN.MODEL.MATCH_COARSE.MATCH_TYPE`
 
 # -- # fine-level
-_CN.MODEL.LOSS.FINE_TYPE = 'l2_with_std'  # ['l2_with_std', 'l2']
+_CN.MODEL.LOSS.FINE_TYPE = 'l2_with_std'  # ['l2_with_std', 'l2', 'sym_epi', 'sampson']
 _CN.MODEL.LOSS.FINE_WEIGHT = 1.0
 _CN.MODEL.LOSS.FINE_CORRECT_THR = 1.0  # for filtering valid fine-level gts (some gt matches might fall out of the fine-level window)
 

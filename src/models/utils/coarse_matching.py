@@ -315,8 +315,7 @@ class CoarseMatching(nn.Module):
             # The sampling is performed across all pairs in a batch without manually balancing
             # #samples for fine-level increases w.r.t. batch_size
             if 'mask0' not in data:
-                num_candidates_max = mask.size(0) * max(
-                    mask.size(1), mask.size(2))
+                num_candidates_max = conf_mask.size(0) * max(conf_mask.size(1), conf_mask.size(2))
             else:
                 num_candidates_max = compute_max_candidates(
                     data['mask0'], data['mask1'])
@@ -368,6 +367,8 @@ class CoarseMatching(nn.Module):
             'm_bids': b_ids[mconf != 0],  # mconf == 0 => gt matches
             'mkpts0_c': mkpts0_c[mconf != 0],
             'mkpts1_c': mkpts1_c[mconf != 0],
+            'all_mkpts0_c': mkpts0_c,
+            'all_mkpts1_c': mkpts1_c,
             'mconf': mconf[mconf != 0]
         })
 

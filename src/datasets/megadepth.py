@@ -100,6 +100,9 @@ class MegaDepthDataset(Dataset):
         T_0to1 = torch.tensor(np.matmul(T1, np.linalg.inv(T0)), dtype=torch.float)[:4, :4]  # (4, 4)
         T_1to0 = T_0to1.inverse()
 
+        P0 = K_0 @ torch.tensor(T0[:3, :4], dtype=torch.float)
+        P1 = K_1 @ torch.tensor(T1[:3, :4], dtype=torch.float)
+
         data = {
             'image0': image0,  # (1, h, w)
             'depth0': depth0,  # (h, w)
@@ -109,6 +112,7 @@ class MegaDepthDataset(Dataset):
             'T_1to0': T_1to0,
             'K0': K_0,  # (3, 3)
             'K1': K_1,
+            'proj_mat0': P0, 'proj_mat1': P1,
             'scale0': scale0,  # [scale_w, scale_h]
             'scale1': scale1,
             'dataset_name': 'MegaDepth',

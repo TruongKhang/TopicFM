@@ -5,7 +5,7 @@ from einops.einops import rearrange
 from .backbone import build_backbone
 from .modules import FineNetwork, FinePreprocess, TopicFormer
 from .utils.coarse_matching import CoarseMatching
-from .utils.fine_matching import FineMatching
+from .utils.fine_matching import FineMatching, PixelPerfectFineMatching
 
 
 class TopicFM(nn.Module):
@@ -21,7 +21,10 @@ class TopicFM(nn.Module):
         self.coarse_matching = CoarseMatching(config['match_coarse'])
         self.fine_preprocess = FinePreprocess(config)
         self.fine_net = FineNetwork(config["fine"])
-        self.fine_matching = FineMatching()
+        if config["loss"]["fine_type"] in ["l2_with_std", "l2"]:
+            self.fine_matching = FineMatching()
+        else:
+            self.fine_matching = PixelPerfectFineMatching(n_feats=25)
 
     def forward(self, data):
         """ 

@@ -3,6 +3,7 @@ from loguru import logger
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from kornia.geometry.epipolar import sampson_epipolar_distance, symmetrical_epipolar_distance
 
 
 def sample_non_matches(pos_mask, match_ids=None, sampling_ratio=10):
@@ -103,11 +104,21 @@ class TopicFMLoss(nn.Module):
 
         return loss
         
-    def compute_fine_loss(self, expec_f, expec_f_gt):
+    def compute_fine_loss(self, **kwargs):
         if self.fine_type == 'l2_with_std':
+            expec_f, expec_f_gt = kwargs["expec_f"], kwargs["expec_f_gt"]
             return self._compute_fine_loss_l2_std(expec_f, expec_f_gt)
         elif self.fine_type == 'l2':
+            expec_f, expec_f_gt = kwargs["expec_f"], kwargs["expec_f_gt"]
             return self._compute_fine_loss_l2(expec_f, expec_f_gt)
+        elif self.fine_type == 'sym_epi':
+            f_kpts0, f_kpts1 = kwargs["f_kpts0"], kwargs["f_kpts1"]
+            FMat, heatmap0 = kwargs["FMat"], kwargs["heatmap0"]
+            return self._compute_sym_epipolar_distance(f_kpts0, f_kpts1, FMat, heatmap0)
+        elif self.fine_type == 'sampson':
+            f_kpts0, f_kpts1 = kwargs["f_kpts0"], kwargs["f_kpts1"]
+            FMat = kwargs["FMat"]
+            return self._compute_sampson_distance(f_kpts0, f_kpts1, FMat)
         else:
             raise NotImplementedError()
 
@@ -156,6 +167,22 @@ class TopicFMLoss(nn.Module):
         loss = (offset_l2 * weight[correct_mask]).mean()
 
         return loss
+
+    def _compute_sym_epipolar_distance(self, kpts0, kpts1, FMat, heatmap=None, dist_thr=100):
+        sym_dist = symmetrical_epipolar_distance(kpts0.unsqueeze(1), kpts1.unsqueeze(1), FMat, squared=False,
+                                                 eps=1e-6).squeeze(-1)
+        """mask = sym_dist.detach() < dist_thr
+        entropy = (heatmap * torch.log(heatmap + 1e-6)).sum(dim=-1) if heatmap is not None else torch.zeros_like(sym_dist)
+        inlier_loss = torch.mean(sym_dist[mask] - 0.2 * entropy[mask])
+        outlier_loss = torch.mean(entropy[~mask])
+        loss = inlier_loss + outlier_loss"""
+        loss = sym_dist.clamp(min=0, max=100) * 0.25
+        return loss.mean()
+
+    def _compute_sampson_distance(self, kpts0, kpts1, FMat):
+        loss = sampson_epipolar_distance(kpts0.unsqueeze(1), kpts1.unsqueeze(1), FMat, squared=True, eps=1e-6)
+        loss = loss.clamp(min=0, max=100) * 0.25
+        return loss.mean()
     
     @torch.no_grad()
     def compute_c_weight(self, data):
@@ -185,7 +212,11 @@ class TopicFMLoss(nn.Module):
         loss_scalars.update({"loss_c": loss_c.clone().detach().cpu()})
 
         # 2. fine-level loss
-        loss_f = self.compute_fine_loss(data['expec_f'], data['expec_f_gt'])
+        if self.fine_type in ["l2", "l2_with_std"]:
+            loss_f = self.compute_fine_loss(expec_f=data['expec_f'], expec_f_gt=data['expec_f_gt'])
+        else:
+            loss_f = self.compute_fine_loss(f_kpts0=data["all_mkpts0_f"], f_kpts1=data["all_mkpts1_f"],
+                                            FMat=data["FMat_f"])
         if loss_f is not None:
             loss += loss_f * self.loss_config['fine_weight']
             loss_scalars.update({"loss_f":  loss_f.clone().detach().cpu()})
