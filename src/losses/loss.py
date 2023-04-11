@@ -2,6 +2,7 @@ from loguru import logger
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 def sample_non_matches(pos_mask, match_ids=None, sampling_ratio=10):
@@ -90,9 +91,15 @@ class TopicFMLoss(nn.Module):
 
         if "geo_conf_pairs" in data:
             # geometric loss
-            geo_conf_pairs, valid_pairs = data["geo_conf_pairs"], data["valid_pairs"]
-            loss_geo = - alpha * torch.log(geo_conf_pairs[valid_pairs] + 1e-5)
-            loss = loss + loss_geo.mean()
+            geo_conf_pairs, geo_labels, valid_pairs = data["geo_conf_pairs"], data["geo_labels"], data["valid_pairs"]
+            # loss_geo = - alpha * torch.log(geo_conf_pairs[valid_pairs] + 1e-5)
+            num_pos = geo_labels[valid_pairs].sum()
+            num_neg = valid_pairs.sum() - num_pos
+            pos_weight = float(num_neg / num_pos) if num_neg > 0 else 1.0
+            data["num_neg_matches"] = num_neg
+            pos_weight = torch.tensor([float(num_neg/num_pos)], device=geo_labels.device)
+            loss_geo = F.binary_cross_entropy_with_logits(geo_conf_pairs[valid_pairs], geo_labels[valid_pairs], pos_weight=pos_weight)
+            loss = loss + loss_geo # .mean()
 
         return loss
         

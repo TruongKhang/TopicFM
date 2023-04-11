@@ -2,6 +2,7 @@ from math import log
 from loguru import logger
 
 import torch
+import torch.nn.functional as F
 from einops import repeat
 from kornia.utils import create_meshgrid
 
@@ -79,6 +80,16 @@ def spvs_coarse(data, config):
     loop_back = torch.stack([nearest_index0[_b][_i] for _b, _i in enumerate(nearest_index1)], dim=0)
     correct_0to1 = loop_back == torch.arange(h0*w0, device=device)[None].repeat(N, 1)
     correct_0to1[:, 0] = False  # ignore the top-left corner
+
+    # estimate coarse-level gt matches using F.grid_sample
+    """w_grid0_c = w_pt0_c.reshape(N, h0, w0, 2)
+    w_grid0_c[..., 0] = (w_grid0_c[..., 0] / (w1 - 1) - 0.5) * 2
+    w_grid0_c[..., 1] = (w_grid0_c[..., 1] / (h1 - 1) - 0.5) * 2
+    w_grid1_c = w_pt1_c.reshape(N, h1, w1, 2).permute(0, 3, 1, 2)
+    reproj_grid0_c = F.grid_sample(w_grid1_c, w_grid0_c, mode='nearest', align_corners=True) # [N, 2, h0, w0]
+    reproj_grid0_c = reproj_grid0_c.reshape(N, 2, -1).permute(0, 2, 1)
+    correct_0to1 = ((reproj_grid0_c - grid_pt0_c)**2).sum(dim=-1).sqrt() < 1
+    correct_0to1[:, 0] = False"""
 
     # 4. construct a gt conf_matrix
     conf_matrix_gt = torch.zeros(N, h0*w0, h1*w1, device=device)
