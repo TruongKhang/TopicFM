@@ -107,6 +107,7 @@ class TopicFormer(nn.Module):
 
         self.seed_tokens = nn.Parameter(torch.randn(config['n_topics'], config['d_model']))
         self.register_parameter('seed_tokens', self.seed_tokens)
+        self.topic_drop = nn.Dropout1d(p=0.1)
         self.n_samples = config['n_samples']
 
         self._reset_parameters()
@@ -151,6 +152,7 @@ class TopicFormer(nn.Module):
         N, L, S, C, K = feat0.shape[0], feat0.shape[1], feat1.shape[1], feat0.shape[2], self.config['n_topics']
 
         seeds = self.seed_tokens.unsqueeze(0).repeat(N, 1, 1)
+        seeds = self.topic_drop(seeds)
 
         feat = torch.cat((feat0, feat1), dim=1)
         if mask0 is not None:
@@ -167,7 +169,7 @@ class TopicFormer(nn.Module):
                 feat0 = layer(feat0, seeds, mask0, None)
                 feat1 = layer(feat1, seeds, mask1, None)
 
-        dmatrix = torch.einsum("nmd,nkd->nmk", feat, seeds)
+        dmatrix = torch.einsum("nmd,nkd->nmk", feat, seeds / C**.5)
         prob_topics = F.softmax(dmatrix, dim=-1)
 
         feat_topics = torch.zeros_like(dmatrix).scatter_(-1, torch.argmax(dmatrix, dim=-1, keepdim=True), 1.0)
@@ -210,9 +212,9 @@ class TopicFormer(nn.Module):
             topic_matrix = {"img0": feat_topics[:, :L], "img1": feat_topics[:, L:]}
             outlier_mask = torch.ones_like(conf_matrix)
         if mask0 is not None:
-            outlier_mask = (outlier_mask * mask0[..., None] * mask1[:, None]) #.bool()
+            outlier_mask = (outlier_mask * mask0[..., None] * mask1[:, None])
         conf_matrix.masked_fill_(~outlier_mask.bool(), -1e9)
-        conf_matrix = F.softmax(conf_matrix, 1) * F.softmax(conf_matrix, 2)  # * topic_matrix
+        conf_matrix = F.softmax(conf_matrix, 1) * F.softmax(conf_matrix, 2)
 
         return feat0, feat1, conf_matrix, topic_matrix
 

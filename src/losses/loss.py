@@ -113,8 +113,8 @@ class TopicFMLoss(nn.Module):
             return self._compute_fine_loss_l2(expec_f, expec_f_gt)
         elif self.fine_type == 'sym_epi':
             f_kpts0, f_kpts1 = kwargs["f_kpts0"], kwargs["f_kpts1"]
-            FMat, heatmap0 = kwargs["FMat"], kwargs["heatmap0"]
-            return self._compute_sym_epipolar_distance(f_kpts0, f_kpts1, FMat, heatmap0)
+            FMat = kwargs["FMat"] #, kwargs["heatmap0"]
+            return self._compute_sym_epipolar_distance(f_kpts0, f_kpts1, FMat) # , heatmap0)
         elif self.fine_type == 'sampson':
             f_kpts0, f_kpts1 = kwargs["f_kpts0"], kwargs["f_kpts1"]
             FMat = kwargs["FMat"]
