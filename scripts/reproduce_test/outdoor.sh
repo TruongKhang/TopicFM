@@ -7,10 +7,9 @@ PROJECT_DIR="${SCRIPTPATH}/../../"
 export PYTHONPATH=$PROJECT_DIR:$PYTHONPATH
 cd $PROJECT_DIR
 
-#data_cfg_path="configs/data/megadepth_test_1500.py"
 main_cfg_path="configs/megadepth_test.py"
-ckpt_path="pretrained/model_ep29.ckpt"
-dump_dir="dump/loftr_ds_outdoor"
+ckpt_path="pretrained/model_best.ckpt"
+dump_dir="dump/topicfm_outdoor"
 profiler_name="inference"
 n_nodes=1  # mannually keep this the same with --nodes
 n_gpus_per_node=1
