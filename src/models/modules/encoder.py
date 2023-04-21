@@ -178,8 +178,8 @@ class TopicFormer(nn.Module):
             feat_topics = feat_topics * mask.unsqueeze(-1)
             prob_topics = prob_topics * mask.unsqueeze(-1)
 
-        if (feat_topics.detach().sum(dim=1).sum(dim=0) > 100).sum() <= 3:
-            logger.warning("topic distribution is highly sparse!")
+        # if (feat_topics.detach().sum(dim=1).sum(dim=0) > 100).sum() <= 3:
+        #     logger.warning("topic distribution is highly sparse!")
         sampled_topics = self.sample_topic(prob_topics.detach(), feat_topics, L)
         if sampled_topics is not None:
             updated_feat0, updated_feat1 = torch.zeros_like(feat0), torch.zeros_like(feat1)
@@ -204,44 +204,24 @@ class TopicFormer(nn.Module):
                 feat0 = self.feat_aug[idt](feat0, seeds, mask0, None)
                 feat1 = self.feat_aug[idt](feat1, seeds, mask1, None)
 
-        conf_matrix = torch.einsum("nlc,nsc->nls", feat0, feat1) / C**.5 #(C * temperature)
+        # conf_matrix = torch.einsum("nlc,nsc->nls", feat0, feat1) / C**.5 #(C * temperature)
         if self.training:
             topic_matrix = torch.einsum("nlk,nsk->nls", prob_topics[:, :L], prob_topics[:, L:])
-            outlier_mask = torch.einsum("nlk,nsk->nls", feat_topics[:, :L], feat_topics[:, L:])
+            # outlier_mask = torch.einsum("nlk,nsk->nls", feat_topics[:, :L], feat_topics[:, L:])
         else:
             topic_matrix = {"img0": feat_topics[:, :L], "img1": feat_topics[:, L:]}
-            outlier_mask = torch.ones_like(conf_matrix)
-        if mask0 is not None:
-            outlier_mask = (outlier_mask * mask0[..., None] * mask1[:, None])
-        conf_matrix.masked_fill_(~outlier_mask.bool(), -1e9)
-        conf_matrix = F.softmax(conf_matrix, 1) * F.softmax(conf_matrix, 2)
+            # outlier_mask = torch.ones_like(conf_matrix)
+        # if mask0 is not None:
+            # outlier_mask = (outlier_mask * mask0[..., None] * mask1[:, None])
+        # conf_matrix.masked_fill_(~outlier_mask.bool(), -1e9)
+        # conf_matrix = F.softmax(conf_matrix, 1) * F.softmax(conf_matrix, 2)
 
-        return feat0, feat1, conf_matrix, topic_matrix
-
-
-"""class TopicFormer(nn.Module):
-
-    def __init__(self, config):
-        super(TopicFormer, self).__init__()
-
-        self.config = config
-        
-    def forward(self, feat0, feat1, mask0=None, mask1=None):
-
-        # assert self.d_model == feat0.shape[2], "the feature number of src and transformer must be equal"
-        N, L, S, C, K = feat0.shape[0], feat0.shape[1], feat1.shape[1], feat0.shape[2], self.config['n_topics']
-        conf_matrix = torch.einsum("nlc,nsc->nls", feat0, feat1) / C**.5
-        if mask0 is not None:
-            outlier_mask = (mask0[..., None] * mask1[:, None])
-            conf_matrix.masked_fill_(~outlier_mask.bool(), -1e9)
-        conf_matrix = F.softmax(conf_matrix, 1) * F.softmax(conf_matrix, 2)
-
-        return feat0, feat1, conf_matrix, None"""
+        return feat0, feat1, topic_matrix
 
 
 class FineNetwork(nn.Module):
 
-    def __init__(self, config):
+    def __init__(self, config, add_detector=True):
         super(FineNetwork, self).__init__()
 
         self.config = config
@@ -251,6 +231,10 @@ class FineNetwork(nn.Module):
         self.n_mlp_mixer_blocks = config["n_mlp_mixer_blocks"]
         self.encoder_layers = nn.ModuleList([MLPMixerEncoderLayer(config["n_feats"]*2, self.d_model)
                                              for _ in range(self.n_mlp_mixer_blocks)])
+        self.detector = None
+        if add_detector:
+            self.detector = nn.Sequential(MLPMixerEncoderLayer(config["n_feats"], self.d_model),
+                                          nn.Linear(self.d_model, 1))
 
         self._reset_parameters()
 
@@ -274,6 +258,9 @@ class FineNetwork(nn.Module):
         for idx in range(self.n_mlp_mixer_blocks):
             feat = self.encoder_layers[idx](feat)
         feat0, feat1 = feat[:, :feat0.shape[1]], feat[:, feat0.shape[1]:]
+        score_map0 = None
+        if self.detector is not None:
+            score_map0 = self.detector(feat0).squeeze(-1)
 
-        return feat0, feat1
+        return feat0, feat1, score_map0
 

@@ -6,8 +6,6 @@ import torch.nn.functional as F
 from kornia.geometry.subpix import dsnt
 from kornia.utils.grid import create_meshgrid
 
-from src.models.modules.encoder import MLPMixerEncoderLayer
-
 
 class FineMatching(nn.Module):
     """FineMatching with s2d paradigm"""
@@ -82,13 +80,11 @@ class FineMatching(nn.Module):
         })
 
 
-class PixelPerfectFineMatching(nn.Module):
+class DynamicFineMatching(nn.Module):
     """FineMatching with s2d paradigm"""
 
-    def __init__(self, c=128, n_feats=81):
+    def __init__(self):
         super().__init__()
-        self.detector = nn.Sequential(MLPMixerEncoderLayer(n_feats, c),
-                                      nn.Linear(c, 1))
 
     def forward(self, feat_f0, feat_f1, data):
         """
@@ -124,13 +120,14 @@ class PixelPerfectFineMatching(nn.Module):
             return
 
         temperature = 0.1
-        score_map0 = self.detector(feat_f0).squeeze(-1)
+        score_map0 = data["score_map0"]
         if self.training:
             temperature = math.pow(2, -0.5*data["epoch_idx"]) if data["epoch_idx"] < 8 else 0.1
         heatmap0 = F.softmax(score_map0 / temperature, dim=-1)
         feat_f0_picked = (feat_f0 * heatmap0.unsqueeze(-1)).sum(dim=1)
         coords0_normed = dsnt.spatial_expectation2d(heatmap0.view(-1, W, W)[None], True)[0]
         out = self.get_fine_match(data, coords0_normed, feat_f0_picked, feat_f1)
+        out["mconf"] *= data["mconf"]
         data.update(out)
 
     def get_fine_match(self, data, coords0_normed, feat_f0_picked, feat_f1, mask_b_ids=None):
