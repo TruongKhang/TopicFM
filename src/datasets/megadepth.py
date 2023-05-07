@@ -4,8 +4,37 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset
 from loguru import logger
+from kornia.geometry.transform import warp_perspective
+import kornia.augmentation as KA
 
 from src.utils.dataset import read_megadepth_gray, read_megadepth_depth
+
+
+class GeometricSequential:
+    def __init__(self, *transforms, align_corners=True) -> None:
+        self.transforms = transforms
+        self.align_corners = align_corners
+
+    def __call__(self, x, mode="bilinear"):
+        b, c, h, w = x.shape
+        M = torch.eye(3, device=x.device)[None].expand(b, 3, 3)
+        for t in self.transforms:
+            if np.random.rand() < t.p:
+                M = M.matmul(
+                    t.compute_transformation(x, t.generate_parameters((b, c, h, w)), flags=None)
+                )
+        return (
+            warp_perspective(
+                x, M, dsize=(h, w), mode=mode, align_corners=self.align_corners
+            ),
+            M,
+        )
+
+    def apply_transform(self, x, M, mode="bilinear"):
+        b, c, h, w = x.shape
+        return warp_perspective(
+            x, M, dsize=(h, w), align_corners=self.align_corners, mode=mode
+        )
 
 
 class MegaDepthDataset(Dataset):
@@ -54,13 +83,14 @@ class MegaDepthDataset(Dataset):
             assert img_resize is not None and img_padding and depth_padding
         self.img_resize = img_resize
         if mode == 'val':
-            self.img_resize = 864
+            self.img_resize = 1024
         self.df = df
         self.img_padding = img_padding
         self.depth_max_size = 2000 if depth_padding else None  # the upperbound of depthmaps size in megadepth.
 
         # for training LoFTR
         self.augment_fn = augment_fn if mode == 'train' else None
+        self.geometric_aug = GeometricSequential(KA.RandomAffine(degrees=90, p=0.5)) if mode == "train" else None
         self.coarse_scale = getattr(kwargs, 'coarse_scale', 0.125)
 
     def __len__(self):
@@ -74,11 +104,11 @@ class MegaDepthDataset(Dataset):
         img_name1 = osp.join(self.root_dir, self.scene_info['image_paths'][idx1])
         
         # TODO: Support augmentation & handle seeds for each worker correctly.
-        image0, mask0, scale0 = read_megadepth_gray(
-            img_name0, self.img_resize, self.df, self.img_padding, None)
+        image0, mask0, scale0, _ = read_megadepth_gray(
+            img_name0, self.img_resize, self.df, self.img_padding, None, None)
             # np.random.choice([self.augment_fn, None], p=[0.5, 0.5]))
-        image1, mask1, scale1 = read_megadepth_gray(
-            img_name1, self.img_resize, self.df, self.img_padding, None)
+        image1, mask1, scale1, H_mat = read_megadepth_gray(
+            img_name1, self.img_resize, self.df, self.img_padding, self.augment_fn, self.geometric_aug)
             # np.random.choice([self.augment_fn, None], p=[0.5, 0.5]))
 
         # read depth. shape: (h, w)
@@ -86,13 +116,20 @@ class MegaDepthDataset(Dataset):
             depth0 = read_megadepth_depth(
                 osp.join(self.root_dir, self.scene_info['depth_paths'][idx0]), pad_to=self.depth_max_size)
             depth1 = read_megadepth_depth(
-                osp.join(self.root_dir, self.scene_info['depth_paths'][idx1]), pad_to=self.depth_max_size)
+                osp.join(self.root_dir, self.scene_info['depth_paths'][idx1]), pad_to=None) #self.depth_max_size)
         else:
             depth0 = depth1 = torch.tensor([])
 
         # read intrinsics of original size
         K_0 = torch.tensor(self.scene_info['intrinsics'][idx0].copy(), dtype=torch.float).reshape(3, 3)
         K_1 = torch.tensor(self.scene_info['intrinsics'][idx1].copy(), dtype=torch.float).reshape(3, 3)
+
+        if self.geometric_aug:
+            t_depth1 = self.geometric_aug.apply_transform(depth1[None, None], H_mat, mode='nearest')
+            t_depth1 = t_depth1.squeeze(0).squeeze(0)
+            depth1 = torch.zeros((self.depth_max_size, self.depth_max_size), dtype=torch.float)
+            depth1[:t_depth1.shape[0], :t_depth1.shape[1]] = t_depth1
+            K_1 = H_mat[0] @ K_1
 
         # read and compute relative poses
         T0 = self.scene_info['poses'][idx0]

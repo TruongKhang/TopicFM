@@ -87,7 +87,7 @@ def pad_bottom_right(inp, pad_size, ret_mask=False):
 
 # --- MEGADEPTH ---
 
-def read_megadepth_gray(path, resize=None, df=None, padding=False, augment_fn=None):
+def read_megadepth_gray(path, resize=None, df=None, padding=False, augment_fn=None, geometric_aug=None):
     """
     Args:
         resize (int, optional): the longer edge of resized images. None for no resize.
@@ -100,6 +100,11 @@ def read_megadepth_gray(path, resize=None, df=None, padding=False, augment_fn=No
     """
     # read image
     image = imread_gray(path, augment_fn, client=MEGADEPTH_CLIENT)
+    H_mat = None
+    if geometric_aug is not None:
+        image = torch.from_numpy(image).float() / 255
+        image, H_mat = geometric_aug(image[None, None])
+        image = image[0, 0].numpy() * 255
 
     # resize image
     w, h = image.shape[1], image.shape[0]
@@ -118,7 +123,7 @@ def read_megadepth_gray(path, resize=None, df=None, padding=False, augment_fn=No
     image = torch.from_numpy(image).float()[None] / 255  # (h, w) -> (1, h, w) and normalized
     mask = torch.from_numpy(mask) if mask is not None else None
 
-    return image, mask, scale
+    return image, mask, scale, H_mat
 
 
 def read_megadepth_depth(path, pad_to=None):

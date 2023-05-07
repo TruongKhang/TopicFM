@@ -80,7 +80,7 @@ def main():
     
     # lightning module
     profiler = build_profiler(args.profiler_name)
-    model = PL_Trainer(config, pretrained_ckpt=args.ckpt_path, profiler=profiler)
+    model = PL_Trainer(config, pretrained_ckpt=args.ckpt_path, profiler=profiler, epoch_start=args.epoch_start)
     loguru_logger.info(f"Model LightningModule initialized!")
     
     # lightning data
