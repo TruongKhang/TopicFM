@@ -130,3 +130,5 @@ dmypy.json
 .idea/
 logs/*
 dump/*
+data/*
+pretrained/*
