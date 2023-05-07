@@ -140,6 +140,8 @@ class CoarseMatching(nn.Module):
 
         b_ids, i_ids, j_ids = torch.nonzero(conf_mask, as_tuple=True)
         mconf = data["conf_matrix"][b_ids, i_ids, j_ids]
+        mconf, sorted_ids = torch.sort(mconf, dim=0, descending=True)
+        b_ids, i_ids, j_ids = b_ids[sorted_ids], i_ids[sorted_ids], j_ids[sorted_ids]
 
         # 4. Random sampling of training samples for fine-level LoFTR
         # (optional) pad samples with gt coarse-level matches
