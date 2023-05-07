@@ -25,7 +25,7 @@ _CN.MODEL.COARSE.NHEAD = 2
 _CN.MODEL.COARSE.LAYER_NAMES = ['seed', 'seed', 'seed', 'seed', 'seed']
 _CN.MODEL.COARSE.ATTENTION = 'full'  # options: ['linear', 'full']
 _CN.MODEL.COARSE.N_TOPICS = 100
-_CN.MODEL.COARSE.N_SAMPLES = 6
+_CN.MODEL.COARSE.N_SAMPLES = 0
 _CN.MODEL.COARSE.N_TOPIC_TRANSFORMERS = 1
 
 # 3. Coarse-Matching config
@@ -36,7 +36,6 @@ _CN.MODEL.MATCH_COARSE.NUM_COARSE_MATCHES = None
 _CN.MODEL.MATCH_COARSE.TRAIN_COARSE_PERCENT = 0.2  # training tricks: save GPU memory
 _CN.MODEL.MATCH_COARSE.TRAIN_PAD_NUM_GT_MIN = 200  # training tricks: avoid DDP deadlock
 _CN.MODEL.MATCH_COARSE.SPARSE_SPVS = True
-_CN.MODEL.MATCH_COARSE.GEO_MATCH = False
 
 # 4. MODEL-fine module config
 _CN.MODEL.FINE = CN()
@@ -61,7 +60,7 @@ _CN.MODEL.LOSS.NEG_WEIGHT = 1.0
 # use `_CN.MODEL.MATCH_COARSE.MATCH_TYPE`
 
 # -- # fine-level
-_CN.MODEL.LOSS.FINE_TYPE = 'l2_with_std'  # ['l2_with_std', 'l2', 'sym_epi', 'sampson']
+_CN.MODEL.LOSS.FINE_TYPE = 'sym_epi'  # ['l2_with_std', 'l2', 'sym_epi', 'sampson']
 _CN.MODEL.LOSS.FINE_WEIGHT = 1.0
 _CN.MODEL.LOSS.FINE_CORRECT_THR = 1.0  # for filtering valid fine-level gts (some gt matches might fall out of the fine-level window)
 

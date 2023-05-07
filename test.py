@@ -63,7 +63,7 @@ if __name__ == '__main__':
     loguru_logger.info(f"DataModule initialized!")
 
     # lightning trainer
-    trainer = pl.Trainer.from_argparse_args(args, replace_sampler_ddp=False, logger=False, inference_mode=False)
+    trainer = pl.Trainer.from_argparse_args(args, replace_sampler_ddp=False, logger=False, inference_mode=False, deterministic=True)
 
     loguru_logger.info(f"Start testing!")
     with torch.no_grad():
