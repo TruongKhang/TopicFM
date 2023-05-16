@@ -20,6 +20,7 @@ class Viz(metaclass=ABCMeta):
         # for evaluation metrics of MegaDepth and ScanNet
         self.eval_stats = []
         self.time_stats = []
+        self.flops_stats = {"backbone": [], "coarse_net": [], "fine_net": [], "total": []}
 
     def draw_matches(self, mkpts0, mkpts1, img0, img1, conf, path=None, **kwargs):
         thr = 5e-4
@@ -57,3 +58,12 @@ class Viz(metaclass=ABCMeta):
         if len(self.time_stats) == 0:
             return 0
         return sum(self.time_stats) / len(self.time_stats)
+
+    def measure_flops(self):
+        outputs = {}
+        for k, v in self.flops_stats.items():
+            if len(v) == 0:
+                outputs[k] = 0
+            else:
+                outputs[k] = sum(v) / len(v)
+        return outputs

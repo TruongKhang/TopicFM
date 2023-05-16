@@ -11,7 +11,9 @@ from torch.utils.data import Dataset, DataLoader, SequentialSampler
 
 from src.datasets.custom_dataloader import TestDataLoader
 from src.utils.dataset import read_img_gray
-from configs.data.base import cfg as data_cfg
+from src.config.default import get_cfg_defaults
+from configs.megadepth_test import cfg as megadepth_cfg
+from configs.scannet_test import cfg as scannet_cfg
 import viz
 
 
@@ -63,15 +65,12 @@ if __name__ == '__main__':
     class_name = model_cfg["class"]
     model = viz.__dict__[class_name](model_cfg)
     # all_args = Namespace(**vars(args), **model_cfg)
+    data_cfg = get_cfg_defaults()
     if not args.run_demo:
         if args.dataset_name == 'megadepth':
-            from configs.data.megadepth_test_1500 import cfg
-
-            data_cfg.merge_from_other_cfg(cfg)
+            data_cfg.merge_from_other_cfg(megadepth_cfg)
         elif args.dataset_name == 'scannet':
-            from configs.data.scannet_test_1500 import cfg
-
-            data_cfg.merge_from_other_cfg(cfg)
+            data_cfg.merge_from_other_cfg(scannet_cfg)
         elif args.dataset_name == 'aachen_v1.1':
             data_cfg.merge_from_list(["DATASET.TEST_DATA_SOURCE", "aachen_v1.1",
                                       "DATASET.TEST_DATA_ROOT", os.path.join(args.dataset_dir, "images/images_upright"),
@@ -96,6 +95,7 @@ if __name__ == '__main__':
 
         if args.measure_time:
             print("Running time for each image is {} miliseconds".format(model.measure_time()))
+            print("FLOPS summary: ", model.measure_flops())
         if args.compute_eval_metrics and has_ground_truth:
             model.compute_eval_metrics()
     else:

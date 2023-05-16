@@ -1,17 +1,17 @@
 default: &default
-    class: 'VizTopicFM'
-    ckpt: 'third_party/topicfm/pretrained/model_best.ckpt'
+    class: 'VizTopicFMv2'
+    ckpt: 'pretrained/topicfmv2.ckpt'
     match_threshold: 0.2
-    n_sampling_topics: 4
+    n_sampling_topics: 0
     show_n_topics: 4
 megadepth:
     <<: *default
-    n_sampling_topics: 10
+    n_sampling_topics: 0
     show_n_topics: 6
 scannet:
     <<: *default
     match_threshold: 0.3
-    n_sampling_topics: 5
+    n_sampling_topics: 0
     show_n_topics: 4
 hpatch:
     <<: *default
@@ -19,11 +19,11 @@ inloc:
     <<: *default
     imsize: 1024
     match_threshold: 0.3
-    n_sampling_topics: 8
+    n_sampling_topics: 0
     show_n_topics: 4
 aachen_v1.1:
     <<: *default
     imsize: 1024
     match_threshold: 0.3
-    n_sampling_topics: 6
+    n_sampling_topics: 0
     show_n_topics: 6

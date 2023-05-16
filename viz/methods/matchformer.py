@@ -5,11 +5,13 @@ import cv2
 
 from .base import Viz
 from src.utils.metrics import compute_symmetrical_epipolar_errors, compute_pose_errors
+from src import lower_config
 
-from third_party.loftr.src.loftr import LoFTR, default_cfg
+from third_party.matchformer.model.matchformer import Matchformer
+from third_party.matchformer.config.defaultmf import get_cfg_defaults
 
 
-class VizLoFTR(Viz):
+class VizMatchFormer(Viz):
     def __init__(self, args):
         super().__init__()
         if type(args) == dict:
@@ -18,17 +20,18 @@ class VizLoFTR(Viz):
         self.match_threshold = args.match_threshold
 
         # Load model
-        conf = dict(default_cfg)
+        all_config = lower_config(get_cfg_defaults())
+        conf = dict(all_config["matchformer"])
         conf['match_coarse']['thr'] = self.match_threshold
         print(conf)
-        self.model = LoFTR(config=conf)
+        self.model = Matchformer(config=conf)
         ckpt_dict = torch.load(args.ckpt)
         self.model.load_state_dict(ckpt_dict['state_dict'])
         self.model = self.model.eval().to(self.device)
 
         # Name the method
         # self.ckpt_name = args.ckpt.split('/')[-1].split('.')[0]
-        self.name = 'LoFTR'
+        self.name = 'MatchFormer'
 
         print(f'Initialize {self.name}')
 
@@ -45,11 +48,7 @@ class VizLoFTR(Viz):
             torch.cuda.synchronize()
             self.time_stats.append(start.elapsed_time(end))
 
-            self.flops_stats["backbone"].append(data_dict["backbone_flops"])
-            self.flops_stats["coarse_net"].append(data_dict["coarse_net_flops"])
-            self.flops_stats["fine_net"].append(data_dict["fine_net_flops"])
-            self.flops_stats["total"].append(data_dict["backbone_flops"] + data_dict["coarse_net_flops"] +
-                                             data_dict["fine_net_flops"])
+            self.flops_stats["total"].append(data_dict["total_flops"])
 
         kpts0 = data_dict['mkpts0_f'].cpu().numpy()
         kpts1 = data_dict['mkpts1_f'].cpu().numpy()

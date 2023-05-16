@@ -7,14 +7,14 @@ from pathlib import Path
 import matplotlib.cm as cm
 import numpy as np
 
-from third_party.topicfm.src.models.topic_fm import TopicFM
-from third_party.topicfm.src import get_model_cfg
+from src.models.topic_fm import TopicFM
+from src import get_model_cfg
 from .base import Viz
 from src.utils.metrics import compute_symmetrical_epipolar_errors, compute_pose_errors
 from src.utils.plotting import draw_topics, draw_topicfm_demo, error_colormap
 
 
-class VizTopicFM(Viz):
+class VizTopicFMv2(Viz):
     def __init__(self, args):
         super().__init__()
         if type(args) == dict:
@@ -28,6 +28,7 @@ class VizTopicFM(Viz):
         conf = dict(get_model_cfg())
         conf['match_coarse']['thr'] = self.match_threshold
         conf['coarse']['n_samples'] = self.n_sampling_topics
+        conf['loss']['fine_type'] = "sym_epi"
         print("model config: ", conf)
         self.model = TopicFM(config=conf)
         ckpt_dict = torch.load(args.ckpt)
@@ -36,7 +37,7 @@ class VizTopicFM(Viz):
 
         # Name the method
         # self.ckpt_name = args.ckpt.split('/')[-1].split('.')[0]
-        self.name = 'TopicFM'
+        self.name = 'TopicFMv2'
 
         print(f'Initialize {self.name}')
 
@@ -58,6 +59,7 @@ class VizTopicFM(Viz):
             self.flops_stats["fine_net"].append(data_dict["fine_net_flops"])
             self.flops_stats["total"].append(data_dict["backbone_flops"] + data_dict["coarse_net_flops"] +
                                              data_dict["fine_net_flops"])
+
 
         kpts0 = data_dict['mkpts0_f'].cpu().numpy()
         kpts1 = data_dict['mkpts1_f'].cpu().numpy()

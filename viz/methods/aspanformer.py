@@ -5,11 +5,13 @@ import cv2
 
 from .base import Viz
 from src.utils.metrics import compute_symmetrical_epipolar_errors, compute_pose_errors
+from src import lower_config
 
-from third_party.loftr.src.loftr import LoFTR, default_cfg
+from third_party.aspanformer.src.ASpanFormer.aspanformer import ASpanFormer
+from third_party.aspanformer.src.config.default import get_cfg_defaults
 
 
-class VizLoFTR(Viz):
+class VizAspanFormer(Viz):
     def __init__(self, args):
         super().__init__()
         if type(args) == dict:
@@ -18,17 +20,18 @@ class VizLoFTR(Viz):
         self.match_threshold = args.match_threshold
 
         # Load model
-        conf = dict(default_cfg)
+        all_configs = lower_config(get_cfg_defaults())
+        conf = dict(all_configs["aspan"])
         conf['match_coarse']['thr'] = self.match_threshold
         print(conf)
-        self.model = LoFTR(config=conf)
+        self.model = ASpanFormer(config=conf)
         ckpt_dict = torch.load(args.ckpt)
         self.model.load_state_dict(ckpt_dict['state_dict'])
         self.model = self.model.eval().to(self.device)
 
         # Name the method
         # self.ckpt_name = args.ckpt.split('/')[-1].split('.')[0]
-        self.name = 'LoFTR'
+        self.name = 'AspanFormer'
 
         print(f'Initialize {self.name}')
 
