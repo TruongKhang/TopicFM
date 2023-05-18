@@ -110,10 +110,13 @@ class CoarseMatching(nn.Module):
 
         # 2. mutual nearest
 
-        conf_mask = conf_mask \
-            * torch.zeros_like(conf_matrix).scatter_(1, conf_matrix.topk(k=1, dim=1)[1], 1.0) \
-            * torch.zeros_like(conf_matrix).scatter_(2, conf_matrix.topk(k=1, dim=2)[1], 1.0)
+        # conf_mask = conf_mask \
+        #     * torch.zeros_like(conf_matrix).scatter_(1, conf_matrix.topk(k=1, dim=1)[1], 1.0) \
+        #     * torch.zeros_like(conf_matrix).scatter_(2, conf_matrix.topk(k=1, dim=2)[1], 1.0)
         # b_ids, i_ids, j_ids = torch.nonzero(mask, as_tuple=True)
+        conf_mask = conf_mask \
+            * (conf_matrix == conf_matrix.max(dim=2, keepdim=True)[0]) \
+            * (conf_matrix == conf_matrix.max(dim=1, keepdim=True)[0])
 
         # predict coarse matches from conf_matrix
         data["conf_matrix"] = conf_matrix

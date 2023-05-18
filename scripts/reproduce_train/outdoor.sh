@@ -18,8 +18,8 @@ batch_size=1
 pin_memory=true
 exp_name="outdoor-bs=$(($n_gpus * $batch_size))"
 
-python -u ./train.py "configs/megadepth_train_lower_res.py" \
-    --exp_name="megadepth_bs4_lower_res" \
+python -u ./train.py "configs/megadepth_train.py" \
+    --exp_name="megadepth_bs4" \
     --accelerator="gpu" --devices=${n_gpus} --precision=32 \
     --batch_size=${batch_size} --num_workers=${torch_num_workers} --pin_memory=${pin_memory} \
     --check_val_every_n_epoch=1 \
@@ -27,26 +27,4 @@ python -u ./train.py "configs/megadepth_train_lower_res.py" \
     --limit_val_batches=1. \
     --num_sanity_val_steps=10 \
     --benchmark=True \
-    --max_epochs=30
-
-#TORCH_DISTRIBUTED_DEBUG=INFO python -u ./train.py "configs/megadepth_train_low_res.py" \
-#    --exp_name="megadepth_bs4_low_res" \
-#    --accelerator="gpu" --devices=${n_gpus} --precision=16 \
-#    --batch_size=${batch_size} --num_workers=${torch_num_workers} --pin_memory=${pin_memory} \
-#    --check_val_every_n_epoch=1 \
-#    --log_every_n_steps=9000 \
-#    --limit_val_batches=1. \
-#    --num_sanity_val_steps=10 \
-#    --benchmark=True \
-#    --max_epochs=10 --ckpt_path="logs/tb_logs/megadepth_bs4_lower_res/version_0/checkpoints/last.ckpt" --epoch_start 10
-
-# python -u ./train.py "configs/megadepth_train_high_res.py" \
-#    --exp_name="megadepth_bs4_high_res" \
-#    --accelerator="gpu" --devices=${n_gpus} --precision=16 \
-#    --batch_size=${batch_size} --num_workers=${torch_num_workers} --pin_memory=${pin_memory} \
-#    --check_val_every_n_epoch=1 \
-#    --log_every_n_steps=9000 \
-#    --limit_val_batches=1. \
-#    --num_sanity_val_steps=10 \
-#    --benchmark=True \
-#    --max_epochs=30 --ckpt_path="logs/tb_logs/megadepth_bs4_low_res/version_0/checkpoints/last.ckpt" --epoch_start 20
+    --max_epochs=40

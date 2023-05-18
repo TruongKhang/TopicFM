@@ -49,7 +49,7 @@ def imread_gray(path, augment_fn=None, client=SCANNET_CLIENT):
 
 
 def get_resized_wh(w, h, resize=None):
-    if (resize is not None) and (max(h,w) > resize):  # resize the longer edge
+    if (resize is not None): # and (max(h,w) > resize):  # resize the longer edge
         scale = resize / max(h, w)
         w_new, h_new = int(round(w*scale)), int(round(h*scale))
     else:

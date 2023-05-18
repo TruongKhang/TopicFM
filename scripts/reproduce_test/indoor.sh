@@ -23,5 +23,5 @@ python -u ./test.py \
     --devices=${n_gpus_per_node} --accelerator="gpu" --strategy="ddp" \
     --batch_size=${batch_size} --num_workers=${torch_num_workers}\
     --profiler_name=${profiler_name} \
-    --benchmark=False
+    --benchmark
     
