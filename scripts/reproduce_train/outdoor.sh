@@ -7,18 +7,15 @@ PROJECT_DIR="${SCRIPTPATH}/../../"
 export PYTHONPATH=$PROJECT_DIR:$PYTHONPATH
 cd $PROJECT_DIR
 
-data_cfg_path="configs/data/megadepth_trainval.py"
-main_cfg_path="configs/megadepth_train.py"
+main_cfg_path=$1 #"configs/megadepth_train.py"
 
-#n_nodes=1
-#n_gpus_per_node=1
 n_gpus=4
-torch_num_workers=16
+torch_num_workers=4
 batch_size=1
 pin_memory=true
 exp_name="outdoor-bs=$(($n_gpus * $batch_size))"
 
-python -u ./train.py "configs/megadepth_train.py" \
+python -u ./train.py ${main_cfg_path} \
     --exp_name="megadepth_bs4" \
     --accelerator="gpu" --devices=${n_gpus} --precision=32 \
     --batch_size=${batch_size} --num_workers=${torch_num_workers} --pin_memory=${pin_memory} \

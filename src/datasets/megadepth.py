@@ -83,14 +83,14 @@ class MegaDepthDataset(Dataset):
             assert img_resize is not None and img_padding and depth_padding
         self.img_resize = img_resize
         if mode == 'val':
-            self.img_resize = 1024
+            self.img_resize = 864
         self.df = df
         self.img_padding = img_padding
         self.depth_max_size = 2000 if depth_padding else None  # the upperbound of depthmaps size in megadepth.
 
         # for training LoFTR
         self.augment_fn = augment_fn if mode == 'train' else None
-        self.geometric_aug = GeometricSequential(KA.RandomAffine(degrees=90, p=0.5)) if mode == "train" else None
+        self.geometric_aug = GeometricSequential(KA.RandomAffine(degrees=90, p=0.3)) if mode == "train" else None
         self.coarse_scale = getattr(kwargs, 'coarse_scale', 0.125)
 
     def __len__(self):
@@ -116,7 +116,7 @@ class MegaDepthDataset(Dataset):
             depth0 = read_megadepth_depth(
                 osp.join(self.root_dir, self.scene_info['depth_paths'][idx0]), pad_to=self.depth_max_size)
             depth1 = read_megadepth_depth(
-                osp.join(self.root_dir, self.scene_info['depth_paths'][idx1]), pad_to=None) #self.depth_max_size)
+                osp.join(self.root_dir, self.scene_info['depth_paths'][idx1]), pad_to=None) # self.depth_max_size)
         else:
             depth0 = depth1 = torch.tensor([])
 

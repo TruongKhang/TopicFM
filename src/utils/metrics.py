@@ -81,7 +81,7 @@ def estimate_pose(kpts0, kpts1, K0, K1, thresh, conf=0.99999):
 
     # compute pose with cv2
     E, mask = cv2.findEssentialMat(
-        kpts0, kpts1, np.eye(3), threshold=ransac_thr, prob=conf, method=cv2.RANSAC)
+        kpts0, kpts1, np.eye(3), threshold=ransac_thr, prob=conf, method=cv2.RANSAC, maxIters=10000)
     if E is None:
         print("\nE is None while trying to recover pose.\n")
         return None
