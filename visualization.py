@@ -12,8 +12,8 @@ from torch.utils.data import Dataset, DataLoader, SequentialSampler
 from src.datasets.custom_dataloader import TestDataLoader
 from src.utils.dataset import read_img_gray
 from src.config.default import get_cfg_defaults
-from configs.megadepth_test import cfg as megadepth_cfg
-from configs.scannet_test import cfg as scannet_cfg
+# from configs.megadepth_test import cfg as megadepth_cfg
+# from configs.scannet_test import cfg as scannet_cfg
 import viz
 
 
@@ -54,6 +54,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--dataset_name', type=str, choices=['megadepth', 'scannet', 'aachen_v1.1', 'inloc'], default='megadepth'
     )
+    parser.add_argument('--config_file', type=str, default="configs/megadepth_test.py")
     parser.add_argument('--measure_time', action="store_true")
     parser.add_argument('--no_viz', action="store_true")
     parser.add_argument('--compute_eval_metrics', action="store_true")
@@ -68,9 +69,11 @@ if __name__ == '__main__':
     data_cfg = get_cfg_defaults()
     if not args.run_demo:
         if args.dataset_name == 'megadepth':
-            data_cfg.merge_from_other_cfg(megadepth_cfg)
+            # data_cfg.merge_from_other_cfg(megadepth_cfg)
+            data_cfg.merge_from_file(args.config_file)
         elif args.dataset_name == 'scannet':
-            data_cfg.merge_from_other_cfg(scannet_cfg)
+            # data_cfg.merge_from_other_cfg(scannet_cfg)
+            data_cfg.merge_from_file(args.config_file)
         elif args.dataset_name == 'aachen_v1.1':
             data_cfg.merge_from_list(["DATASET.TEST_DATA_SOURCE", "aachen_v1.1",
                                       "DATASET.TEST_DATA_ROOT", os.path.join(args.dataset_dir, "images/images_upright"),
@@ -85,17 +88,29 @@ if __name__ == '__main__':
         has_ground_truth = str(data_cfg.DATASET.TEST_DATA_SOURCE).lower() in ["megadepth", "scannet"]
         dataloader = TestDataLoader(data_cfg)
         with torch.no_grad():
-            for data_dict in tqdm(dataloader):
+            for batch_idx, data_dict in enumerate(tqdm(dataloader)):
+                # torch.cuda.empty_cache()
                 for k, v in data_dict.items():
                     if isinstance(v, torch.Tensor):
                         data_dict[k] = v.cuda() if torch.cuda.is_available() else v
                 img_root_dir = data_cfg.DATASET.TEST_DATA_ROOT
                 model.match_and_draw(data_dict, root_dir=img_root_dir, ground_truth=has_ground_truth,
                                      measure_time=args.measure_time, viz_matches=(not args.no_viz))
+                # torch.cuda.empty_cache()
+                # if batch_idx == 500:
+                #     break
 
         if args.measure_time:
-            print("Running time for each image is {} miliseconds".format(model.measure_time()))
-            print("FLOPS summary: ", model.measure_flops())
+            runtime = model.measure_time()
+            print("Running time for each image is {} miliseconds".format(runtime))
+            with open(f"runtime_{args.method}.txt", "w") as f:
+                f.write("%.3f\n" % runtime)
+                
+            flops_stats = model.measure_flops()
+            with open(f"flops_{args.method}.txt", "w") as f:
+                for k, v in flops_stats.items():
+                    f.write("%s: %.3f\n" % (k, v))
+            print("FLOPS summary: ", flops_stats)
         if args.compute_eval_metrics and has_ground_truth:
             model.compute_eval_metrics()
     else:

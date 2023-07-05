@@ -21,13 +21,15 @@ class VizTopicFMv2(Viz):
             args = Namespace(**args)
 
         self.match_threshold = args.match_threshold
-        self.n_sampling_topics = args.n_sampling_topics
+        # self.n_sampling_topics = args.n_sampling_topics
         self.show_n_topics = args.show_n_topics
 
         # Load model
         conf = dict(get_model_cfg())
         conf['match_coarse']['thr'] = self.match_threshold
-        conf['coarse']['n_samples'] = self.n_sampling_topics
+        # conf['coarse']['n_samples'] = self.n_sampling_topics
+        for k, v in args.coarse_model_cfg.items():
+            conf["coarse"][k] = v
         conf['loss']['fine_type'] = "sym_epi"
         print("model config: ", conf)
         self.model = TopicFM(config=conf)
@@ -54,11 +56,11 @@ class VizTopicFMv2(Viz):
             torch.cuda.synchronize()
             self.time_stats.append(start.elapsed_time(end))
 
-            self.flops_stats["backbone"].append(data_dict["backbone_flops"])
-            self.flops_stats["coarse_net"].append(data_dict["coarse_net_flops"])
-            self.flops_stats["fine_net"].append(data_dict["fine_net_flops"])
-            self.flops_stats["total"].append(data_dict["backbone_flops"] + data_dict["coarse_net_flops"] +
-                                             data_dict["fine_net_flops"])
+            # self.flops_stats["backbone"].append(data_dict["backbone_flops"])
+            # self.flops_stats["coarse_net"].append(data_dict["coarse_net_flops"])
+            # self.flops_stats["fine_net"].append(data_dict["fine_net_flops"])
+            # self.flops_stats["total"].append(data_dict["backbone_flops"] + data_dict["coarse_net_flops"] +
+            #                                  data_dict["fine_net_flops"])
 
 
         kpts0 = data_dict['mkpts0_f'].cpu().numpy()
@@ -80,12 +82,12 @@ class VizTopicFMv2(Viz):
 
             if ground_truth:
                 compute_symmetrical_epipolar_errors(data_dict)  # compute epi_errs for each match
-                compute_pose_errors(data_dict)  # compute R_errs, t_errs, pose_errs for each pair
+                compute_pose_errors(data_dict, ransac_thr=0.4)  # compute R_errs, t_errs, pose_errs for each pair
                 epi_errors = data_dict['epi_errs'].cpu().numpy()
                 R_errors, t_errors = data_dict['R_errs'][0], data_dict['t_errs'][0]
 
-                self.draw_matches(kpts0, kpts1, img0, img1, epi_errors, path=path_to_save_matches,
-                                  R_errs=R_errors, t_errs=t_errors)
+                # self.draw_matches(kpts0, kpts1, img0, img1, epi_errors, path=path_to_save_matches,
+                #                   R_errs=R_errors, t_errs=t_errors)
 
                 # compute evaluation metrics
                 rel_pair_names = list(zip(*data_dict['pair_names']))

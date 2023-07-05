@@ -2,6 +2,7 @@ import pprint
 from abc import ABCMeta, abstractmethod
 import torch
 from itertools import chain
+import cv2
 
 from src.utils.plotting import make_matching_figure, error_colormap
 from src.utils.metrics import aggregate_metrics
@@ -24,8 +25,8 @@ class Viz(metaclass=ABCMeta):
 
     def draw_matches(self, mkpts0, mkpts1, img0, img1, conf, path=None, **kwargs):
         thr = 5e-4
-        # mkpts0 = pe['mkpts0_f'].cpu().numpy()
-        # mkpts1 = pe['mkpts1_f'].cpu().numpy()
+        img0 = cv2.cvtColor(img0, cv2.COLOR_BGR2RGB)
+        img1 = cv2.cvtColor(img1, cv2.COLOR_BGR2RGB)
         if "conf_thr" in kwargs:
             thr = kwargs["conf_thr"]
         color = error_colormap(conf, thr, alpha=0.1)
