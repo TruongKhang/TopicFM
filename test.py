@@ -1,3 +1,4 @@
+import torch
 import pytorch_lightning as pl
 import argparse
 import pprint
@@ -14,8 +15,8 @@ def parse_args():
     # init a costum parser which will be added into pl.Trainer parser
     # check documentation: https://pytorch-lightning.readthedocs.io/en/latest/common/trainer.html#trainer-flags
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument(
-        'data_cfg_path', type=str, help='data config path')
+    # parser.add_argument(
+    #     'data_cfg_path', type=str, help='data config path')
     parser.add_argument(
         'main_cfg_path', type=str, help='main config path')
     parser.add_argument(
@@ -43,7 +44,7 @@ if __name__ == '__main__':
     # init default-cfg and merge it with the main- and data-cfg
     config = get_cfg_defaults()
     config.merge_from_file(args.main_cfg_path)
-    config.merge_from_file(args.data_cfg_path)
+    # config.merge_from_file(args.data_cfg_path)
     pl.seed_everything(config.TRAINER.SEED)  # reproducibility
 
     # tune when testing
@@ -62,7 +63,8 @@ if __name__ == '__main__':
     loguru_logger.info(f"DataModule initialized!")
 
     # lightning trainer
-    trainer = pl.Trainer.from_argparse_args(args, replace_sampler_ddp=False, logger=False)
+    trainer = pl.Trainer.from_argparse_args(args, replace_sampler_ddp=False, logger=False, inference_mode=False)
 
     loguru_logger.info(f"Start testing!")
-    trainer.test(model, datamodule=data_module, verbose=False)
+    with torch.no_grad():
+        trainer.test(model, datamodule=data_module, verbose=False)

@@ -1,4 +1,4 @@
-from configs.data.base import cfg
+from src.config.default import _CN as cfg
 
 TEST_BASE_PATH = "assets/scannet_test_1500"
 
@@ -8,5 +8,12 @@ cfg.DATASET.TEST_NPZ_ROOT = f"{TEST_BASE_PATH}"
 cfg.DATASET.TEST_LIST_PATH = f"{TEST_BASE_PATH}/scannet_test.txt"
 cfg.DATASET.TEST_INTRINSIC_PATH = f"{TEST_BASE_PATH}/intrinsics.npz"
 cfg.DATASET.TEST_IMGSIZE = (640, 480)
-
 cfg.DATASET.MIN_OVERLAP_SCORE_TEST = 0.0
+
+cfg.MODEL.COARSE.NHEAD = 8
+cfg.MODEL.COARSE.ATTENTION = 'linear'
+cfg.MODEL.COARSE.N_TOPIC_TRANSFORMERS = 2
+cfg.MODEL.COARSE.N_SAMPLES = 5
+cfg.MODEL.MATCH_COARSE.THR = 0.25
+cfg.MODEL.MATCH_COARSE.BORDER_RM = 0
+cfg.TRAINER.RANSAC_PIXEL_THR = 0.4

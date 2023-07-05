@@ -1,0 +1,36 @@
+default: &default
+    class: 'VizTopicFMv2'
+    ckpt: 'pretrained/topicfm_fast.ckpt'
+    match_threshold: 0.2
+    # n_sampling_topics: 0
+    show_n_topics: 4
+    match_border_rm: 2
+    coarse_model_cfg: {"nhead": 2, "attention": "full", "n_samples": 0}
+megadepth:
+    <<: *default
+    # n_sampling_topics: 0
+    # ckpt: 'pretrained/topicfm_plus.ckpt'
+    # coarse_model_cfg: {"nhead": 8, "attention": "linear", "n_samples": 8, "n_topic_transformers": 2}
+    match_threshold: 0.25
+    show_n_topics: 0
+scannet:
+    <<: *default
+    # ckpt: 'pretrained/topicfm_plus.ckpt'
+    # coarse_model_cfg: {"nhead": 8, "attention": "linear", "n_samples": 5, "n_topic_transformers": 2}
+    match_threshold: 0.25
+    # n_sampling_topics: 0
+    show_n_topics: 0
+hpatch:
+    <<: *default
+inloc:
+    <<: *default
+    imsize: 1024
+    match_threshold: 0.3
+    n_sampling_topics: 0
+    show_n_topics: 0
+aachen_v1.1:
+    <<: *default
+    imsize: 1024
+    match_threshold: 0.3
+    n_sampling_topics: 0
+    show_n_topics: 0

@@ -3,7 +3,7 @@ _CN = CN()
 
 ##############  ↓  MODEL Pipeline  ↓  ##############
 _CN.MODEL = CN()
-_CN.MODEL.BACKBONE_TYPE = 'FPN'
+_CN.MODEL.BACKBONE_TYPE = 'fpn'
 _CN.MODEL.RESOLUTION = (8, 2)  # options: [(8, 2), (16, 4)]
 _CN.MODEL.FINE_WINDOW_SIZE = 5  # window_size in fine_level, must be odd
 _CN.MODEL.FINE_CONCAT_COARSE_FEAT = False
@@ -13,24 +13,26 @@ _CN.MODEL.FPN = CN()
 _CN.MODEL.FPN.INITIAL_DIM = 128
 _CN.MODEL.FPN.BLOCK_DIMS = [128, 192, 256, 384]  # s1, s2, s3
 
+_CN.MODEL.CONVNEXT = CN()
+_CN.MODEL.CONVNEXT.INITIAL_DIM = 128
+_CN.MODEL.CONVNEXT.BLOCK_DIMS = [128, 192, 256, 384]
+
 # 2. MODEL-coarse module config
 _CN.MODEL.COARSE = CN()
 _CN.MODEL.COARSE.D_MODEL = 256
 _CN.MODEL.COARSE.D_FFN = 256
-_CN.MODEL.COARSE.NHEAD = 8
+_CN.MODEL.COARSE.NHEAD = 2
 _CN.MODEL.COARSE.LAYER_NAMES = ['seed', 'seed', 'seed', 'seed', 'seed']
-_CN.MODEL.COARSE.ATTENTION = 'linear'  # options: ['linear', 'full']
-_CN.MODEL.COARSE.TEMP_BUG_FIX = True
+_CN.MODEL.COARSE.ATTENTION = 'full'  # options: ['linear', 'full']
 _CN.MODEL.COARSE.N_TOPICS = 100
-_CN.MODEL.COARSE.N_SAMPLES = 6
+_CN.MODEL.COARSE.N_SAMPLES = 0
 _CN.MODEL.COARSE.N_TOPIC_TRANSFORMERS = 1
 
 # 3. Coarse-Matching config
 _CN.MODEL.MATCH_COARSE = CN()
 _CN.MODEL.MATCH_COARSE.THR = 0.2
 _CN.MODEL.MATCH_COARSE.BORDER_RM = 2
-_CN.MODEL.MATCH_COARSE.MATCH_TYPE = 'dual_softmax'
-_CN.MODEL.MATCH_COARSE.DSMAX_TEMPERATURE = 0.1
+_CN.MODEL.MATCH_COARSE.NUM_COARSE_MATCHES = None
 _CN.MODEL.MATCH_COARSE.TRAIN_COARSE_PERCENT = 0.2  # training tricks: save GPU memory
 _CN.MODEL.MATCH_COARSE.TRAIN_PAD_NUM_GT_MIN = 200  # training tricks: avoid DDP deadlock
 _CN.MODEL.MATCH_COARSE.SPARSE_SPVS = True
@@ -42,7 +44,8 @@ _CN.MODEL.FINE.D_FFN = 128
 _CN.MODEL.FINE.NHEAD = 4
 _CN.MODEL.FINE.LAYER_NAMES = ['cross'] * 1
 _CN.MODEL.FINE.ATTENTION = 'linear'
-_CN.MODEL.FINE.N_TOPICS = 1
+_CN.MODEL.FINE.N_MLP_MIXER_BLOCKS = 2
+_CN.MODEL.FINE.N_FEATS = _CN.MODEL.FINE_WINDOW_SIZE ** 2
 
 # 5. MODEL Losses
 # -- # coarse-level
@@ -57,7 +60,7 @@ _CN.MODEL.LOSS.NEG_WEIGHT = 1.0
 # use `_CN.MODEL.MATCH_COARSE.MATCH_TYPE`
 
 # -- # fine-level
-_CN.MODEL.LOSS.FINE_TYPE = 'l2_with_std'  # ['l2_with_std', 'l2']
+_CN.MODEL.LOSS.FINE_TYPE = 'sym_epi'  # ['l2_with_std', 'l2', 'sym_epi', 'sampson']
 _CN.MODEL.LOSS.FINE_WEIGHT = 1.0
 _CN.MODEL.LOSS.FINE_CORRECT_THR = 1.0  # for filtering valid fine-level gts (some gt matches might fall out of the fine-level window)
 

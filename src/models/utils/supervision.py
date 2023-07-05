@@ -2,8 +2,10 @@ from math import log
 from loguru import logger
 
 import torch
+import torch.nn.functional as F
 from einops import repeat
 from kornia.utils import create_meshgrid
+from kornia.geometry.epipolar import fundamental_from_projections
 
 from .geometry import warp_kpts
 
@@ -80,6 +82,16 @@ def spvs_coarse(data, config):
     correct_0to1 = loop_back == torch.arange(h0*w0, device=device)[None].repeat(N, 1)
     correct_0to1[:, 0] = False  # ignore the top-left corner
 
+    # estimate coarse-level gt matches using F.grid_sample
+    """w_grid0_c = w_pt0_c.reshape(N, h0, w0, 2)
+    w_grid0_c[..., 0] = (w_grid0_c[..., 0] / (w1 - 1) - 0.5) * 2
+    w_grid0_c[..., 1] = (w_grid0_c[..., 1] / (h1 - 1) - 0.5) * 2
+    w_grid1_c = w_pt1_c.reshape(N, h1, w1, 2).permute(0, 3, 1, 2)
+    reproj_grid0_c = F.grid_sample(w_grid1_c, w_grid0_c, mode='nearest', align_corners=True) # [N, 2, h0, w0]
+    reproj_grid0_c = reproj_grid0_c.reshape(N, 2, -1).permute(0, 2, 1)
+    correct_0to1 = ((reproj_grid0_c - grid_pt0_c)**2).sum(dim=-1).sqrt() < 1
+    correct_0to1[:, 0] = False"""
+
     # 4. construct a gt conf_matrix
     conf_matrix_gt = torch.zeros(N, h0*w0, h1*w1, device=device)
     b_ids, i_ids = torch.where(correct_0to1 != 0)
@@ -129,18 +141,22 @@ def spvs_fine(data, config):
     """
     # 1. misc
     # w_pt0_i, pt1_i = data.pop('spv_w_pt0_i'), data.pop('spv_pt1_i')
-    w_pt0_i, pt1_i = data['spv_w_pt0_i'], data['spv_pt1_i']
-    scale = config['MODEL']['RESOLUTION'][1]
-    radius = config['MODEL']['FINE_WINDOW_SIZE'] // 2
+    if config["MODEL"]["LOSS"]["FINE_TYPE"] in ['l2_with_std', 'l2']:
+        w_pt0_i, pt1_i = data['spv_w_pt0_i'], data['spv_pt1_i']
+        scale = config['MODEL']['RESOLUTION'][1]
+        radius = config['MODEL']['FINE_WINDOW_SIZE'] // 2
 
-    # 2. get coarse prediction
-    b_ids, i_ids, j_ids = data['b_ids'], data['i_ids'], data['j_ids']
+        # 2. get coarse prediction
+        b_ids, i_ids, j_ids = data['b_ids'], data['i_ids'], data['j_ids']
 
-    # 3. compute gt
-    scale = scale * data['scale1'][b_ids] if 'scale0' in data else scale
-    # `expec_f_gt` might exceed the window, i.e. abs(*) > 1, which would be filtered later
-    expec_f_gt = (w_pt0_i[b_ids, i_ids] - pt1_i[b_ids, j_ids]) / scale / radius  # [M, 2]
-    data.update({"expec_f_gt": expec_f_gt})
+        # 3. compute gt
+        scale = scale * data['scale1'][b_ids] if 'scale0' in data else scale
+        # `expec_f_gt` might exceed the window, i.e. abs(*) > 1, which would be filtered later
+        expec_f_gt = (w_pt0_i[b_ids, i_ids] - pt1_i[b_ids, j_ids]) / scale / radius  # [M, 2]
+        data.update({"expec_f_gt": expec_f_gt})
+    else:
+        FMat = fundamental_from_projections(data["proj_mat0"], data["proj_mat1"])
+        data.update({"FMat_f": FMat[data["f_b_ids"]]})
 
 
 def compute_supervision_fine(data, config):

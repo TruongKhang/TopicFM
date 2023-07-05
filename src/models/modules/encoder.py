@@ -61,8 +61,35 @@ class LoFTREncoderLayer(nn.Module):
         return x + message
 
 
+class MLPMixerEncoderLayer(nn.Module):
+    def __init__(self, dim1, dim2):
+        super(MLPMixerEncoderLayer, self).__init__()
+
+        self.mlp1 = nn.Sequential(nn.Linear(dim1, dim1),
+                                      nn.GELU(),
+                                      nn.Linear(dim1, dim1))
+        self.mlp2 = nn.Sequential(nn.Linear(dim2, dim2),
+                                      nn.GELU(),
+                                      nn.Linear(dim2, dim2))
+        self.norm1 = nn.LayerNorm(dim2)
+        self.norm2 = nn.LayerNorm(dim2)
+
+    def forward(self, x):
+        """
+        Args:
+            x (torch.Tensor): [N, L, C]
+            x_mask (torch.Tensor): [N, L] (optional)
+        """
+
+        # message = self.norm1(x)
+        message = self.mlp1(x.permute(0, 2, 1))  # [N, C, L]
+        x = x + self.norm1(message.permute(0, 2, 1))  # [N, L, C]
+        message = self.norm2(self.mlp2(x))  # [N, L, C]
+
+        return x + message
+
+
 class TopicFormer(nn.Module):
-    """A Local Feature Transformer (LoFTR) module."""
 
     def __init__(self, config):
         super(TopicFormer, self).__init__()
@@ -74,11 +101,13 @@ class TopicFormer(nn.Module):
         encoder_layer = LoFTREncoderLayer(config['d_model'], config['nhead'], config['attention'])
         self.layers = nn.ModuleList([copy.deepcopy(encoder_layer) for _ in range(len(self.layer_names))])
 
-        self.topic_transformers = nn.ModuleList([copy.deepcopy(encoder_layer) for _ in range(2*config['n_topic_transformers'])]) if config['n_samples'] > 0 else None #nn.ModuleList([copy.deepcopy(encoder_layer) for _ in range(2)])
+        # if config['n_samples'] > 0:
+        self.feat_aug = nn.ModuleList([copy.deepcopy(encoder_layer) for _ in range(2*config['n_topic_transformers'])])
         self.n_iter_topic_transformer = config['n_topic_transformers']
 
         self.seed_tokens = nn.Parameter(torch.randn(config['n_topics'], config['d_model']))
         self.register_parameter('seed_tokens', self.seed_tokens)
+        self.topic_drop = nn.Dropout1d(p=0.1)
         self.n_samples = config['n_samples']
 
         self._reset_parameters()
@@ -89,10 +118,6 @@ class TopicFormer(nn.Module):
                 nn.init.xavier_uniform_(p)
 
     def sample_topic(self, prob_topics, topics, L):
-        """
-        Args:
-            topics (torch.Tensor): [N, L+S, K]
-        """
         prob_topics0, prob_topics1 = prob_topics[:, :L], prob_topics[:, L:]
         topics0, topics1  = topics[:, :L], topics[:, L:]
 
@@ -122,18 +147,12 @@ class TopicFormer(nn.Module):
         return resized_feat, new_mask, selected_ids
 
     def forward(self, feat0, feat1, mask0=None, mask1=None):
-        """
-        Args:
-            feat0 (torch.Tensor): [N, L, C]
-            feat1 (torch.Tensor): [N, S, C]
-            mask0 (torch.Tensor): [N, L] (optional)
-            mask1 (torch.Tensor): [N, S] (optional)
-        """
 
         assert self.d_model == feat0.shape[2], "the feature number of src and transformer must be equal"
         N, L, S, C, K = feat0.shape[0], feat0.shape[1], feat1.shape[1], feat0.shape[2], self.config['n_topics']
 
         seeds = self.seed_tokens.unsqueeze(0).repeat(N, 1, 1)
+        seeds = self.topic_drop(seeds)
 
         feat = torch.cat((feat0, feat1), dim=1)
         if mask0 is not None:
@@ -150,7 +169,7 @@ class TopicFormer(nn.Module):
                 feat0 = layer(feat0, seeds, mask0, None)
                 feat1 = layer(feat1, seeds, mask1, None)
 
-        dmatrix = torch.einsum("nmd,nkd->nmk", feat, seeds)
+        dmatrix = torch.einsum("nmd,nkd->nmk", feat, seeds / C**.5)
         prob_topics = F.softmax(dmatrix, dim=-1)
 
         feat_topics = torch.zeros_like(dmatrix).scatter_(-1, torch.argmax(dmatrix, dim=-1, keepdim=True), 1.0)
@@ -159,8 +178,8 @@ class TopicFormer(nn.Module):
             feat_topics = feat_topics * mask.unsqueeze(-1)
             prob_topics = prob_topics * mask.unsqueeze(-1)
 
-        if (feat_topics.detach().sum(dim=1).sum(dim=0) > 100).sum() <= 3:
-            logger.warning("topic distribution is highly sparse!")
+        # if (feat_topics.detach().sum(dim=1).sum(dim=0) > 100).sum() <= 3:
+        #     logger.warning("topic distribution is highly sparse!")
         sampled_topics = self.sample_topic(prob_topics.detach(), feat_topics, L)
         if sampled_topics is not None:
             updated_feat0, updated_feat1 = torch.zeros_like(feat0), torch.zeros_like(feat1)
@@ -171,43 +190,52 @@ class TopicFormer(nn.Module):
                     new_feat0, new_mask0, selected_ids0 = self.reduce_feat(feat0, topick0, N, C)
                     new_feat1, new_mask1, selected_ids1 = self.reduce_feat(feat1, topick1, N, C)
                     for idt in range(self.n_iter_topic_transformer):
-                        new_feat0 = self.topic_transformers[idt*2](new_feat0, new_feat0, new_mask0, new_mask0)
-                        new_feat1 = self.topic_transformers[idt*2](new_feat1, new_feat1, new_mask1, new_mask1)
-                        new_feat0 = self.topic_transformers[idt*2+1](new_feat0, new_feat1, new_mask0, new_mask1)
-                        new_feat1 = self.topic_transformers[idt*2+1](new_feat1, new_feat0, new_mask1, new_mask0)
+                        new_feat0 = self.feat_aug[idt*2](new_feat0, new_feat0, new_mask0, new_mask0)
+                        new_feat1 = self.feat_aug[idt*2](new_feat1, new_feat1, new_mask1, new_mask1)
+                        new_feat0 = self.feat_aug[idt*2+1](new_feat0, new_feat1, new_mask0, new_mask1)
+                        new_feat1 = self.feat_aug[idt*2+1](new_feat1, new_feat0, new_mask1, new_mask0)
                     updated_feat0[selected_ids0, :] = new_feat0[new_mask0, :]
                     updated_feat1[selected_ids1, :] = new_feat1[new_mask1, :]
 
             feat0 = (1 - s_topics0.sum(dim=-1, keepdim=True)) * feat0 + updated_feat0
             feat1 = (1 - s_topics1.sum(dim=-1, keepdim=True)) * feat1 + updated_feat1
+        else:
+            for idt in range(self.n_iter_topic_transformer * 2):
+                feat0 = self.feat_aug[idt](feat0, seeds, mask0, None)
+                feat1 = self.feat_aug[idt](feat1, seeds, mask1, None)
 
-        conf_matrix = torch.einsum("nlc,nsc->nls", feat0, feat1) / C**.5 #(C * temperature)
+        # conf_matrix = torch.einsum("nlc,nsc->nls", feat0, feat1) / C**.5 #(C * temperature)
         if self.training:
             topic_matrix = torch.einsum("nlk,nsk->nls", prob_topics[:, :L], prob_topics[:, L:])
-            outlier_mask = torch.einsum("nlk,nsk->nls", feat_topics[:, :L], feat_topics[:, L:])
+            # outlier_mask = torch.einsum("nlk,nsk->nls", feat_topics[:, :L], feat_topics[:, L:])
         else:
             topic_matrix = {"img0": feat_topics[:, :L], "img1": feat_topics[:, L:]}
-            outlier_mask = torch.ones_like(conf_matrix)
-        if mask0 is not None:
-            outlier_mask = (outlier_mask * mask0[..., None] * mask1[:, None]) #.bool()
-        conf_matrix.masked_fill_(~outlier_mask.bool(), -1e9)
-        conf_matrix = F.softmax(conf_matrix, 1) * F.softmax(conf_matrix, 2)  # * topic_matrix
+            # outlier_mask = torch.ones_like(conf_matrix)
+        # if mask0 is not None:
+            # outlier_mask = (outlier_mask * mask0[..., None] * mask1[:, None])
+        # conf_matrix.masked_fill_(~outlier_mask.bool(), -1e9)
+        # conf_matrix = F.softmax(conf_matrix, 1) * F.softmax(conf_matrix, 2)
 
-        return feat0, feat1, conf_matrix, topic_matrix
+        return feat0, feat1, topic_matrix
 
 
-class LocalFeatureTransformer(nn.Module):
-    """A Local Feature Transformer (LoFTR) module."""
+class FineNetwork(nn.Module):
 
-    def __init__(self, config):
-        super(LocalFeatureTransformer, self).__init__()
+    def __init__(self, config, add_detector=True):
+        super(FineNetwork, self).__init__()
 
         self.config = config
         self.d_model = config['d_model']
         self.nhead = config['nhead']
         self.layer_names = config['layer_names']
-        encoder_layer = LoFTREncoderLayer(config['d_model'], config['nhead'], config['attention'])
-        self.layers = nn.ModuleList([copy.deepcopy(encoder_layer) for _ in range(2)]) #len(self.layer_names))])
+        self.n_mlp_mixer_blocks = config["n_mlp_mixer_blocks"]
+        self.encoder_layers = nn.ModuleList([MLPMixerEncoderLayer(config["n_feats"]*2, self.d_model)
+                                             for _ in range(self.n_mlp_mixer_blocks)])
+        self.detector = None
+        if add_detector:
+            self.detector = nn.Sequential(MLPMixerEncoderLayer(config["n_feats"], self.d_model),
+                                          nn.Linear(self.d_model, 1))
+
         self._reset_parameters()
 
     def _reset_parameters(self):
@@ -226,7 +254,13 @@ class LocalFeatureTransformer(nn.Module):
 
         assert self.d_model == feat0.shape[2], "the feature number of src and transformer must be equal"
 
-        feat0 = self.layers[0](feat0, feat1, mask0, mask1)
-        feat1 = self.layers[1](feat1, feat0, mask1, mask0)
+        feat = torch.cat((feat0, feat1), dim=1)
+        for idx in range(self.n_mlp_mixer_blocks):
+            feat = self.encoder_layers[idx](feat)
+        feat0, feat1 = feat[:, :feat0.shape[1]], feat[:, feat0.shape[1]:]
+        score_map0 = None
+        if self.detector is not None:
+            score_map0 = self.detector(feat0).squeeze(-1)
 
-        return feat0, feat1
+        return feat0, feat1, score_map0
+

@@ -48,7 +48,7 @@ class LinearAttention(Module):
 
 
 class FullAttention(Module):
-    def __init__(self, use_dropout=False, attention_dropout=0.1):
+    def __init__(self, use_dropout=True, attention_dropout=0.1):
         super().__init__()
         self.use_dropout = use_dropout
         self.dropout = Dropout(attention_dropout)
@@ -66,12 +66,15 @@ class FullAttention(Module):
         """
 
         # Compute the unnormalized attention and apply the masks
-        QK = torch.einsum("nlhd,nshd->nlsh", queries, keys)
+        QK = torch.einsum("nlhd,nshd->nlsh", queries / queries.size(3)**.5, keys)
+        N, L, S, H = QK.shape
+        if q_mask is not None:
+            QK.masked_fill_(~(q_mask.bool().reshape(N, L, 1, 1)), -1e9)
         if kv_mask is not None:
-            QK.masked_fill_(~(q_mask[:, :, None, None] * kv_mask[:, None, :, None]).bool(), -1e9)
+            QK.masked_fill_(~(kv_mask.bool().reshape(N, 1, S, 1)), -1e9)
 
         # Compute the attention and the weighted average
-        softmax_temp = 1. / queries.size(3)**.5  # sqrt(D)
+        softmax_temp = 1. #/ queries.size(3)**.5  # sqrt(D)
         A = torch.softmax(softmax_temp * QK, dim=2)
         if self.use_dropout:
             A = self.dropout(A)

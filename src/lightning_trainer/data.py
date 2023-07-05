@@ -100,7 +100,6 @@ class MultiSceneDataModule(pl.LightningDataModule):
         # (optional) RandomSampler for debugging
 
         # misc configurations
-        self.parallel_load_data = getattr(args, 'parallel_load_data', False)
         self.seed = config.TRAINER.SEED  # 66
 
     def setup(self, stage=None):
@@ -110,7 +109,7 @@ class MultiSceneDataModule(pl.LightningDataModule):
             stage (str): 'fit' in training phase, and 'test' in testing phase.
         """
 
-        assert stage in ['fit', 'test'], "stage must be either fit or test"
+        assert stage in ['fit', 'validate', 'test'], "stage must be either fit or test"
 
         try:
             self.world_size = dist.get_world_size()
@@ -154,6 +153,30 @@ class MultiSceneDataModule(pl.LightningDataModule):
                     min_overlap_score=self.min_overlap_score_test,
                     pose_dir=self.val_pose_root)
             logger.info(f'[rank:{self.rank}] Train & Val Dataset loaded!')
+        elif stage == 'validate':
+            if isinstance(self.val_list_path, (list, tuple)):
+                self.val_dataset = []
+                if not isinstance(self.val_npz_root, (list, tuple)):
+                    self.val_npz_root = [self.val_npz_root for _ in range(len(self.val_list_path))]
+                for npz_list, npz_root in zip(self.val_list_path, self.val_npz_root):
+                    self.val_dataset.append(self._setup_dataset(
+                        self.val_data_root,
+                        npz_root,
+                        npz_list,
+                        self.val_intrinsic_path,
+                        mode='val',
+                        min_overlap_score=self.min_overlap_score_test,
+                        pose_dir=self.val_pose_root))
+            else:
+                self.val_dataset = self._setup_dataset(
+                    self.val_data_root,
+                    self.val_npz_root,
+                    self.val_list_path,
+                    self.val_intrinsic_path,
+                    mode='val',
+                    min_overlap_score=self.min_overlap_score_test,
+                    pose_dir=self.val_pose_root)
+            logger.info(f'[rank:{self.rank}] Val Dataset loaded!')
         else:  # stage == 'test
             self.test_dataset = self._setup_dataset(
                 self.test_data_root,
@@ -183,9 +206,7 @@ class MultiSceneDataModule(pl.LightningDataModule):
             local_npz_names = npz_names
         logger.info(f'[rank {self.rank}]: {len(local_npz_names)} scene(s) assigned.')
         
-        dataset_builder = self._build_concat_dataset_parallel \
-                            if self.parallel_load_data \
-                            else self._build_concat_dataset
+        dataset_builder = self._build_concat_dataset
         return dataset_builder(data_root, local_npz_names, split_npz_root, intri_path,
                                 mode=mode, min_overlap_score=min_overlap_score, pose_dir=pose_dir)
 
@@ -232,55 +253,6 @@ class MultiSceneDataModule(pl.LightningDataModule):
                                      coarse_scale=self.coarse_scale))
             else:
                 raise NotImplementedError()
-        return ConcatDataset(datasets)
-    
-    def _build_concat_dataset_parallel(
-        self,
-        data_root,
-        npz_names,
-        npz_dir,
-        intrinsic_path,
-        mode,
-        min_overlap_score=0.,
-        pose_dir=None,
-    ):
-        augment_fn = self.augment_fn if mode == 'train' else None
-        data_source = self.trainval_data_source if mode in ['train', 'val'] else self.test_data_source
-        if str(data_source).lower() == 'megadepth':
-            npz_names = [f'{n}.npz' for n in npz_names]
-        with tqdm_joblib(tqdm(desc=f'[rank:{self.rank}] loading {mode} datasets',
-                              total=len(npz_names), disable=int(self.rank) != 0)):
-            if data_source == 'ScanNet':
-                datasets = Parallel(n_jobs=math.floor(len(os.sched_getaffinity(0)) * 0.9 / comm.get_local_size()))(
-                    delayed(lambda x: _build_dataset(
-                        ScanNetDataset,
-                        data_root,
-                        osp.join(npz_dir, x),
-                        intrinsic_path,
-                        mode=mode,
-                        min_overlap_score=min_overlap_score,
-                        augment_fn=augment_fn,
-                        pose_dir=pose_dir))(name)
-                    for name in npz_names)
-            elif data_source == 'MegaDepth':
-                # TODO: _pickle.PicklingError: Could not pickle the task to send it to the workers.
-                raise NotImplementedError()
-                datasets = Parallel(n_jobs=math.floor(len(os.sched_getaffinity(0)) * 0.9 / comm.get_local_size()))(
-                    delayed(lambda x: _build_dataset(
-                        MegaDepthDataset,
-                        data_root,
-                        osp.join(npz_dir, x),
-                        mode=mode,
-                        min_overlap_score=min_overlap_score,
-                        img_resize=self.mgdpt_img_resize,
-                        df=self.mgdpt_df,
-                        img_padding=self.mgdpt_img_pad,
-                        depth_padding=self.mgdpt_depth_pad,
-                        augment_fn=augment_fn,
-                        coarse_scale=self.coarse_scale))(name)
-                    for name in npz_names)
-            else:
-                raise ValueError(f'Unknown dataset: {data_source}')
         return ConcatDataset(datasets)
 
     def train_dataloader(self):
