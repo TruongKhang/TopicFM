@@ -51,7 +51,7 @@ And then run this command to start training.
 
     bash scripts/reproduce_test/outdoor.sh <path to the config file in the folder configs> <path to pretrained model>
     # For example, to evaluate TopicFM-fast 
-    bash scripts/reproduce_test/outdoor.sh configs/megadepth_test_topicfmfast.py pretrained/topicfmfast.ckpt
+    bash scripts/reproduce_test/outdoor.sh configs/megadepth_test_topicfmfast.py pretrained/topicfm_fast.ckpt
 
 ### ScanNet (relative pose estimation)
 
@@ -78,7 +78,7 @@ Runtime report at the image resolution of (640, 480) (measured on NVIDIA TITAN V
 
 
 |   Model       |    640 x 480   |    1200 x 896    |
-|:--------------|----------------|------------------|
+|:--------------|:--------------:|:----------------:|
 | TopicFM-fast  |     56 ms      |      346 ms      |
 | TopicFM+      |     90 ms      |      388 ms      |
 
