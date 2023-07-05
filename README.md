@@ -1,18 +1,7 @@
-# [AAAI-23] TopicFM: Robust and Interpretable Topic-Assisted Feature Matching 
+# TopicFM+: Boosting Accuracy and Efficiency of Topic-Assisted Feature Matching 
     
-Our method first inferred the latent topics (high-level context information) for each image and then use them to explicitly learn robust feature representation for the matching task. Please check out the details in [our paper](https://arxiv.org/abs/2207.00328)
+This code implements [TopicFM+](https://arxiv.org/abs/2307.00485), which is an extension of [TopicFM](https://arxiv.org/abs/2207.00328). For the implementation of previous version TopicFM, please checkout the `aaai23_ver` branch.
 
-![Alt Text](demo/topicfm.gif)
-
-**Overall Architecture:**
-
-![Alt Text](demo/architecture_v4.png)
-
-## TODO List
-
-- [x] Release training and evaluation code on MegaDepth and ScanNet
-- [x] Evaluation on HPatches, Aachen Day&Night, and InLoc
-- [x] Evaluation for Image Matching Challenge
 
 ## Requirements
 
@@ -23,7 +12,7 @@ First, create a virtual environment by anaconda as follows,
 
     conda create -n topicfm python=3.8 
     conda activate topicfm
-    conda install pytorch==1.8.1 torchvision==0.9.1 cudatoolkit=10.1 -c pytorch
+    conda install pytorch==1.12.1 torchvision==0.13.1 cudatoolkit=11.3 -c pytorch
     pip install -r requirements.txt
     # using pip to install any missing packages
 
@@ -36,7 +25,7 @@ The following descriptions help download these datasets.
 ### MegaDepth
 
 This dataset is used for both training and evaluation (Li and Snavely 2018). 
-To use this dataset with our code, please follow the [instruction of LoFTR](https://github.com/zju3dv/LoFTR/blob/master/docs/TRAINING.md) (Sun et al. 2021)
+To use this dataset with our code, please follow the [instruction of LoFTR](https://github.com/zju3dv/LoFTR/blob/master/docs/TRAINING.md).
 
 ### ScanNet 
 We only use 1500 image pairs of ScanNet (Dai et al. 2017) for evaluation. 
@@ -50,78 +39,72 @@ In our settings, we train on 4 GPUs, each of which is 12GB.
 Please setup your hardware environment in `scripts/reproduce_train/outdoor.sh`.
 And then run this command to start training.
 
-    bash scripts/reproduce_train/outdoor.sh
+    bash scripts/reproduce_train/outdoor.sh <path to the training config file>
+    # for example,
+    bash scripts/reproduce_train/outdoor.sh configs/megadepth_train_topicfmfast.py
 
- We then provide the trained model in `pretrained/model_best.ckpt`
+ We provided the pretrained models, which were used in the paper ([TopicFM-fast](https://drive.google.com/file/d/1DACWdszttpiCZlk4aazhu0IDWvHkLPZf/view?usp=sharing), [TopicFM+](https://drive.google.com/file/d/1RTZJYrKQ593PBJTdxi9k5C4qZ5lSXnf0/view?usp=sharing))
+
 ## Evaluation
 
 ### MegaDepth (relative pose estimation)
 
-    bash scripts/reproduce_test/outdoor.sh
+    bash scripts/reproduce_test/outdoor.sh <path to the config file in the folder configs> <path to pretrained model>
+    # For example, to evaluate TopicFM-fast 
+    bash scripts/reproduce_test/outdoor.sh configs/megadepth_test_topicfmfast.py pretrained/topicfmfast.ckpt
 
 ### ScanNet (relative pose estimation)
 
-    bash scripts/reproduce_test/indoor.sh
+    bash scripts/reproduce_test/indoor.sh <path to the config file in the folder configs> <path to pretrained model>
 
 ### HPatches, Aachen v1.1, InLoc
 
-To evaluate on these datasets, we integrate our code to the image-matching-toolbox provided by Zhou et al. (2021).
-The updated code is available [here](https://github.com/TruongKhang/image-matching-toolbox). 
-After cloning this code, please follow instructions of image-matching-toolbox to install all required packages and prepare data for evaluation.
-
-Then, run these commands to perform evaluation: (note that all hyperparameter settings are in `configs/topicfm.yml`)
-
-**HPatches (homography estimation)**
-
-    python -m immatch.eval_hpatches --gpu 0 --config 'topicfm' --task 'both' --h_solver 'cv' --ransac_thres 3 --root_dir . --odir 'outputs/hpatches'
-
-**Aachen Day-Night v1.1 (visual localization)**
-
-    python -m immatch.eval_aachen --gpu 0 --config 'topicfm' --colmap <path to use colmap> --benchmark_name 'aachen_v1.1'
-
-**InLoc (visual localization)**
-
-    python -m immatch.eval_inloc --gpu 0 --config 'topicfm'
-
-### Image Matching Challenge 2022 (IMC-2022)
-IMC-2022 was held on [Kaggle](https://www.kaggle.com/competitions/image-matching-challenge-2022/overview). 
-Most high ranking methods were achieved by using an ensemble method which combines the matching results of 
-various state-of-the-art methods including LoFTR, SuperPoint+SuperGlue, MatchFormer, or QuadTree Attention.
-
-In this evaluation, we only submit the results produced by our method (TopicFM) alone. Please refer to [this notebook](https://www.kaggle.com/code/khangtg09121995/topicfm-eval).
-This table compares our results with the other methods such as LoFTR (ref. [here](https://www.kaggle.com/code/mcwema/imc-2022-kornia-loftr-score-plateau-0-726)), 
-SP+SuperGlue (ref. [here](https://www.kaggle.com/code/yufei12/superglue-baseline)).
-
-|                | Public Score | Private Score |
-|----------------|--------------|---------------|
-| SP + SuperGlue | 0.678        | 0.677         |
-| LoFTR          | 0.726        | 0.736         |
-| TopicFM (ours) | **0.804**    | **0.811**     |
+To evaluate on these datasets, we integrate our code to the image-matching-toolbox provided by Patch2Pix.
+The updated code and detailed evaluations are available [here](https://github.com/TruongKhang/image-matching-toolbox). 
 
 
-### Runtime comparison
+### Efficiency comparison
 
-The runtime reported in the paper is measured by averaging runtime of 1500 image pairs of the ScanNet evaluation dataset.
-The image size can be changed at `configs/data/scannet_test_1500.py`
+The efficiency evaluation reported in the paper was measured by averaging runtime of 1500 image pairs of the ScanNet evaluation dataset.
+The image size can be changed in `configs/data/scannet_test_topicfmfast.py`
 
-    python visualization.py --method <method_name> --dataset_name "scannet" --measure_time --no_viz
-    # note that method_name is in ["topicfm", "loftr"]
+We computed computational costs in GFLOPs and runtimes in ms for LoFTR, MatchFormer, QuadTree, and AspanFormer. However, this process required minor modification of the code of each method individually. Please contact us if you need evaluations for those methods.
 
-To measure time for LoFTR, please download the LoFTR's code as follows:
+Here, we provide the runtime measurement for our method, TopicFM-fast
 
-    git submodule update --init
-    # download pretrained models
-    mkdir third_party/loftr/pretrained 
-    gdown --id 1M-VD35-qdB5Iw-AtbDBCKC7hPolFW9UY -O third_party/loftr/pretrained/outdoor_ds.ckpt
+    python visualization.py --method topicfmv2 --dataset_name scannet --config_file configs/scannet_test_topicfmfast.py  --measure_time --no_viz
+
+Runtime report at the image resolution of (640, 480) (measured on NVIDIA TITAN V 32GB of Mem.)
+
+
+|   Model       |    640 x 480   |    1200 x 896    |
+|:--------------|----------------|------------------|
+| TopicFM-fast  |     56 ms      |      346 ms      |
+| TopicFM+      |     90 ms      |      388 ms      |
+
 
 ## Citations
-If you find this work useful, please cite this:
+If you find this code useful, please cite the following works:
 
-    @article{giang2022topicfm,
-        title={TopicFM: Robust and Interpretable Topic-assisted Feature Matching},
+    @misc{giang2023topicfm,
+      title={TopicFM+: Boosting Accuracy and Efficiency of Topic-Assisted Feature Matching}, 
+      author={Khang Truong Giang and Soohwan Song and Sungho Jo},
+      year={2023},
+      eprint={2307.00485},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV}
+    }
+
+or
+
+    @inproceedings{giang2023topicfm,
+        title={TopicFM: Robust and interpretable topic-assisted feature matching},
         author={Giang, Khang Truong and Song, Soohwan and Jo, Sungho},
-        journal={arXiv preprint arXiv:2207.00328},
-        year={2022}
+        booktitle={Proceedings of the AAAI Conference on Artificial Intelligence},
+        volume={37},
+        number={2},
+        pages={2447--2455},
+        year={2023}
     }
 
 ## Acknowledgement
