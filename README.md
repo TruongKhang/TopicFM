@@ -34,10 +34,10 @@ provided by [LoFTR](https://github.com/zju3dv/LoFTR/blob/master/docs/TRAINING.md
 
 ## Training
 
-To train our model, we recommend to use GPUs card as much as possible, and each GPU should be at least 12GB.
+To train our model, we recommend using GPU cards as much as possible, and each GPU should be at least 12GB.
 In our settings, we train on 4 GPUs, each of which is 12GB. 
 Please setup your hardware environment in `scripts/reproduce_train/outdoor.sh`.
-And then run this command to start training.
+Then run this command to start training.
 
     bash scripts/reproduce_train/outdoor.sh <path to the training config file>
     # for example,
@@ -62,6 +62,9 @@ And then run this command to start training.
 To evaluate on these datasets, we integrate our code to the image-matching-toolbox provided by Patch2Pix.
 The updated code and detailed evaluations are available [here](https://github.com/TruongKhang/image-matching-toolbox). 
 
+### Image Matching Challange 2023
+
+Our method TopicFM+ achieved a high ranking (silver medal) on the Kaggle IMC2023 [here](https://www.kaggle.com/competitions/image-matching-challenge-2023/leaderboard?tab=public). 
 
 ### Efficiency comparison
 
