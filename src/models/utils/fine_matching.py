@@ -155,6 +155,7 @@ class DynamicFineMatching(nn.Module):
         true_matches = (~data["gt_mask"])[mask_b_ids]
         mkpts0_f = all_mkpts0_f.detach()[true_matches]
         mkpts1_f = all_mkpts1_f.detach()[true_matches]
+        scale0_f, scale1_f = scale0[true_matches], scale1[true_matches]
         mconf = mconf.detach()[true_matches]
         f_b_ids = data["b_ids"][mask_b_ids]
 
@@ -166,4 +167,5 @@ class DynamicFineMatching(nn.Module):
             "all_mkpts1_f": all_mkpts1_f,
             "mkpts0_f": mkpts0_f,
             "mkpts1_f": mkpts1_f,
+            "scale0_f": scale0_f, "scale1_f": scale1_f
         }

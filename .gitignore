@@ -131,4 +131,3 @@ dmypy.json
 logs/*
 dump/*
 data/*
-pretrained/*

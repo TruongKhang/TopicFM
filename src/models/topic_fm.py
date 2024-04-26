@@ -75,6 +75,7 @@ class TopicFM(nn.Module):
         feat_c0, feat_c1, topic_matrix = self.coarse_net(feat_c0, feat_c1, mask_c0, mask_c1)
         data.update({"topic_matrix": topic_matrix,
                      # "coarse_net_flops": coarse_net_counter.total() / 1e9,
+                     "feat_map0": feat_f0, "feat_map1": feat_f1,
                      })
 
         # 3. match coarse-level
