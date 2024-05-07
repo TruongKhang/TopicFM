@@ -9,7 +9,7 @@ from kornia.geometry.epipolar import sampson_epipolar_distance, symmetrical_epip
 def sample_non_matches(pos_mask, match_ids=None, sampling_ratio=10):
     # assert (pos_mask.shape == mask.shape) # [B, H*W, H*W]
     if match_ids is not None:
-        HW = pos_mask.shape[1]
+        HW = pos_mask.shape[2]
         b_ids, i_ids, j_ids = match_ids
         if len(b_ids) == 0:
             return ~pos_mask
@@ -41,68 +41,55 @@ class TopicFMLoss(nn.Module):
         # fine-level
         self.fine_type = self.loss_config['fine_type']
 
-    def compute_coarse_loss(self, data, match_ids=None, weight=None):
+    def compute_coarse_loss(self, batches):
         """ Point-wise CE / Focal Loss with 0 / 1 confidence as gt.
         Args:
             conf (torch.Tensor): (N, HW0, HW1) / (N, HW0+1, HW1+1)
             conf_gt (torch.Tensor): (N, HW0, HW1)
             weight (torch.Tensor): (N, HW0, HW1)
         """
-        conf, conf_gt = data['conf_matrix'], data['conf_matrix_gt']
-        topic_mat = data['topic_matrix']
+        
+        batch_size = len(batches)
 
-        pos_mask = conf_gt == 1
-        neg_mask = sample_non_matches(pos_mask, match_ids=match_ids)
-        c_pos_w, c_neg_w = self.c_pos_w, self.c_neg_w
-        # corner case: no gt coarse-level match at all
-        if not pos_mask.any():  # assign a wrong gt
-            pos_mask[0, 0, 0] = True
-            if weight is not None:
-                weight[0, 0, 0] = 0.
-            c_pos_w = 0.
-        if not neg_mask.any():
-            neg_mask[0, 0, 0] = True
-            if weight is not None:
-                weight[0, 0, 0] = 0.
-            c_neg_w = 0.
-
-        conf = torch.clamp(conf, 1e-6, 1 - 1e-6)
+        total_loss = 0.0
         alpha = self.loss_config['focal_alpha']
+        for data in batches:
+            conf, conf_gt = data['conf_matrix'], data['conf_matrix_gt']
+            topic_mat = data['topic_matrix']
 
-        loss = 0.0
-        if isinstance(topic_mat, torch.Tensor):
-            pos_topic = topic_mat[pos_mask]
-            loss_pos_topic = - alpha * (pos_topic + 1e-6).log()
-            neg_topic = topic_mat[neg_mask]
-            loss_neg_topic = - alpha * (1 - neg_topic + 1e-6).log()
-            if weight is not None:
-                loss_pos_topic = loss_pos_topic * weight[pos_mask]
-                loss_neg_topic = loss_neg_topic * weight[neg_mask]
-            loss = loss_pos_topic.mean() + loss_neg_topic.mean()
+            match_ids = data['spv_b_ids'], data['spv_i_ids'], data['spv_j_ids']
+            pos_mask = conf_gt == 1
+            neg_mask = sample_non_matches(pos_mask, match_ids=match_ids)
+            c_pos_w, c_neg_w = self.c_pos_w, self.c_neg_w
+            # corner case: no gt coarse-level match at all
+            if not pos_mask.any():  # assign a wrong gt
+                pos_mask[0, 0, 0] = True
+                c_pos_w = 0.
+            if not neg_mask.any():
+                neg_mask[0, 0, 0] = True
+                c_neg_w = 0.
 
-        pos_conf = conf[pos_mask]
-        loss_pos = - alpha * pos_conf.log()
-        # handle loss weights
-        if weight is not None:
-            # Different from dense-spvs, the loss w.r.t. padded regions aren't directly zeroed out,
-            # but only through manually setting corresponding regions in sim_matrix to '-inf'.
-            loss_pos = loss_pos * weight[pos_mask]
+            conf = torch.clamp(conf, 1e-6, 1 - 1e-6)
+            
+            loss = 0.0
+            if isinstance(topic_mat, torch.Tensor):
+                pos_topic = topic_mat[pos_mask]
+                loss_pos_topic = - alpha * (pos_topic + 1e-6).log()
+                neg_topic = topic_mat[neg_mask]
+                loss_neg_topic = - alpha * (1 - neg_topic + 1e-6).log()
+                
+                loss = loss_pos_topic.mean() + loss_neg_topic.mean()
 
-        loss = loss + c_pos_w * loss_pos.mean()
+            pos_conf = conf[pos_mask]
+            loss_pos = - alpha * pos_conf.log()
 
-        if "geo_conf_pairs" in data:
-            # geometric loss
-            geo_conf_pairs, geo_labels, valid_pairs = data["geo_conf_pairs"], data["geo_labels"], data["valid_pairs"]
-            # loss_geo = - alpha * torch.log(geo_conf_pairs[valid_pairs] + 1e-5)
-            num_pos = geo_labels[valid_pairs].sum()
-            num_neg = valid_pairs.sum() - num_pos
-            pos_weight = float(num_neg / num_pos) if num_neg > 0 else 1.0
-            data["num_neg_matches"] = num_neg
-            pos_weight = torch.tensor([float(num_neg/num_pos)], device=geo_labels.device)
-            loss_geo = F.binary_cross_entropy_with_logits(geo_conf_pairs[valid_pairs], geo_labels[valid_pairs], pos_weight=pos_weight)
-            loss = loss + loss_geo # .mean()
+            loss = loss + c_pos_w * loss_pos.mean()
 
-        return loss
+            total_loss = total_loss + loss 
+        
+        total_loss = total_loss / batch_size
+        
+        return total_loss
         
     def compute_fine_loss(self, **kwargs):
         if self.fine_type == 'l2_with_std':
@@ -193,7 +180,7 @@ class TopicFMLoss(nn.Module):
             c_weight = None
         return c_weight
 
-    def forward(self, data):
+    def forward(self, batches):
         """
         Update:
             data (dict): update{
@@ -203,26 +190,34 @@ class TopicFMLoss(nn.Module):
         """
         loss_scalars = {}
         # 0. compute element-wise loss weight
-        c_weight = self.compute_c_weight(data)
+        # c_weight = self.compute_c_weight(data)
 
         # 1. coarse-level loss
-        loss_c = self.compute_coarse_loss(data, match_ids=(data['spv_b_ids'], data['spv_i_ids'], data['spv_j_ids']),
-                                          weight=c_weight)
+        loss_c = self.compute_coarse_loss(batches)
         loss = loss_c * self.loss_config['coarse_weight']
         loss_scalars.update({"loss_c": loss_c.clone().detach().cpu()})
 
         # 2. fine-level loss
-        if self.fine_type in ["l2", "l2_with_std"]:
-            loss_f = self.compute_fine_loss(expec_f=data['expec_f'], expec_f_gt=data['expec_f_gt'])
+        total_loss_f = 0.0
+        for data in batches:
+            if self.fine_type in ["l2", "l2_with_std"]:
+                loss_f = self.compute_fine_loss(expec_f=data['expec_f'], expec_f_gt=data['expec_f_gt'])
+            else:
+                loss_f = self.compute_fine_loss(f_kpts0=data["all_mkpts0_f"], f_kpts1=data["all_mkpts1_f"],
+                                                FMat=data["FMat_f"])
+            if loss_f is not None:
+                total_loss_f += loss_f * self.loss_config['fine_weight']
+            else:
+                assert self.training is False
+        
+        total_loss_f /= len(batches)
+        if isinstance(total_loss_f, torch.Tensor):
+            loss_scalars.update({"loss_f":  total_loss_f.clone().detach().cpu()})
         else:
-            loss_f = self.compute_fine_loss(f_kpts0=data["all_mkpts0_f"], f_kpts1=data["all_mkpts1_f"],
-                                            FMat=data["FMat_f"])
-        if loss_f is not None:
-            loss += loss_f * self.loss_config['fine_weight']
-            loss_scalars.update({"loss_f":  loss_f.clone().detach().cpu()})
-        else:
-            assert self.training is False
             loss_scalars.update({'loss_f': torch.tensor(1.)})  # 1 is the upper bound
 
+        loss = loss + total_loss_f
+
         loss_scalars.update({'loss': loss.clone().detach().cpu()})
-        data.update({"loss": loss, "loss_scalars": loss_scalars})
+
+        return loss, loss_scalars

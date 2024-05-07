@@ -1,16 +1,13 @@
 from os import path as osp
-from typing import Dict
-from unicodedata import name
 
 import numpy as np
 import torch
 import torch.utils as utils
 from numpy.linalg import inv
 from src.utils.dataset import (
-    read_scannet_gray,
+    read_scannet_color,
     read_scannet_depth,
-    read_scannet_pose,
-    read_scannet_intrinsic
+    read_scannet_pose
 )
 
 
@@ -64,7 +61,7 @@ class ScanNetDataset(utils.data.Dataset):
         pose0 = self._read_abs_pose(scene_name, name0)
         pose1 = self._read_abs_pose(scene_name, name1)
         
-        return np.matmul(pose1, inv(pose0))  # (4, 4)
+        return pose0, pose1  # (4, 4)
 
     def __getitem__(self, idx):
         data_name = self.data_names[idx]
@@ -76,9 +73,9 @@ class ScanNetDataset(utils.data.Dataset):
         img_name1 = osp.join(self.root_dir, scene_name, 'color', f'{stem_name_1}.jpg')
         
         # TODO: Support augmentation & handle seeds for each worker correctly.
-        image0 = read_scannet_gray(img_name0, resize=self.img_resize, augment_fn=None)
+        image0 = read_scannet_color(img_name0, resize=self.img_resize, augment_fn=None)
                                 #    augment_fn=np.random.choice([self.augment_fn, None], p=[0.5, 0.5]))
-        image1 = read_scannet_gray(img_name1, resize=self.img_resize, augment_fn=None)
+        image1 = read_scannet_color(img_name1, resize=self.img_resize, augment_fn=None)
                                 #    augment_fn=np.random.choice([self.augment_fn, None], p=[0.5, 0.5]))
 
         # read the depthmap which is stored as (480, 640)
@@ -92,9 +89,13 @@ class ScanNetDataset(utils.data.Dataset):
         K_0 = K_1 = torch.tensor(self.intrinsics[scene_name].copy(), dtype=torch.float).reshape(3, 3)
 
         # read and compute relative poses
-        T_0to1 = torch.tensor(self._compute_rel_pose(scene_name, stem_name_0, stem_name_1),
-                              dtype=torch.float32)
+        T0, T1 = self._compute_rel_pose(scene_name, stem_name_0, stem_name_1)
+                              
+        T_0to1 = torch.tensor(np.matmul(T1, inv(T0)), dtype=torch.float32)
         T_1to0 = T_0to1.inverse()
+
+        P0 = K_0 @ torch.tensor(T0[:3, :4], dtype=torch.float)
+        P1 = K_1 @ torch.tensor(T1[:3, :4], dtype=torch.float)
 
         data = {
             'image0': image0,   # (1, h, w)
@@ -105,6 +106,7 @@ class ScanNetDataset(utils.data.Dataset):
             'T_1to0': T_1to0,
             'K0': K_0,  # (3, 3)
             'K1': K_1,
+            'proj_mat0': P0, 'proj_mat1': P1,
             'dataset_name': 'ScanNet',
             'scene_id': scene_name,
             'pair_id': idx,

@@ -1,0 +1,29 @@
+from src.config.default import _CN as cfg
+
+TRAIN_BASE_PATH = "/mnt/sda/munjw/datasets/blendedmvs"
+cfg.DATASET.TRAINVAL_DATA_SOURCE = "BlendedMVS"
+cfg.DATASET.TRAIN_DATA_ROOT = f"{TRAIN_BASE_PATH}"
+cfg.DATASET.TRAIN_LIST_PATH = f"{TRAIN_BASE_PATH}/training_plus_short_list.txt"
+
+TEST_BASE_PATH = "/mnt/sda/munjw/datasets/blendedmvs"
+cfg.DATASET.TEST_DATA_SOURCE = "BlendedMVS"
+cfg.DATASET.VAL_DATA_ROOT = cfg.DATASET.TEST_DATA_ROOT = f"{TEST_BASE_PATH}"
+cfg.DATASET.VAL_LIST_PATH = cfg.DATASET.TEST_LIST_PATH = f"{TEST_BASE_PATH}/validation_list.txt"
+cfg.DATASET.AUGMENTATION_TYPE = "dark"
+
+cfg.MODEL.COARSE.NHEAD = 8
+cfg.MODEL.COARSE.ATTENTION = 'linear'  # options: ['linear', 'full']
+cfg.MODEL.COARSE.N_SAMPLES = 8
+cfg.MODEL.COARSE.N_TOPIC_TRANSFORMERS = 2
+cfg.MODEL.MATCH_COARSE.TRAIN_COARSE_PERCENT = 0.2
+cfg.MODEL.MATCH_COARSE.BORDER_RM = 2
+
+cfg.TRAINER.CANONICAL_LR = 1e-3
+cfg.TRAINER.WARMUP_STEP = 1875  # 3 epochs
+cfg.TRAINER.WARMUP_RATIO = 0.1
+cfg.TRAINER.MSLR_MILESTONES = [5, 10, 15, 20, 25, 30, 35] #[4, 8, 12, 16, 20, 25, 30]
+# pose estimation
+cfg.TRAINER.RANSAC_PIXEL_THR = 0.5
+cfg.TRAINER.OPTIMIZER = "adamw"
+cfg.TRAINER.ADAMW_DECAY = 0.1
+cfg.TRAINER.N_SAMPLES_PER_SUBSET = 100

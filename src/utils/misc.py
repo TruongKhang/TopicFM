@@ -1,6 +1,5 @@
 import os
-import contextlib
-import joblib
+import numpy as np
 from typing import Union
 from loguru import _Logger, logger
 from itertools import chain
@@ -67,35 +66,29 @@ def flattenList(x):
     return list(chain(*x))
 
 
-@contextlib.contextmanager
-def tqdm_joblib(tqdm_object):
-    """Context manager to patch joblib to report into tqdm progress bar given as argument
-    
-    Usage:
-        with tqdm_joblib(tqdm(desc="My calculation", total=10)) as progress_bar:
-            Parallel(n_jobs=16)(delayed(sqrt)(i**2) for i in range(10))
-            
-    When iterating over a generator, directly use of tqdm is also a solutin (but monitor the task queuing, instead of finishing)
-        ret_vals = Parallel(n_jobs=args.world_size)(
-                    delayed(lambda x: _compute_cov_score(pid, *x))(param)
-                        for param in tqdm(combinations(image_ids, 2),
-                                          desc=f'Computing cov_score of [{pid}]',
-                                          total=len(image_ids)*(len(image_ids)-1)/2))
-    Src: https://stackoverflow.com/a/58936697
-    """
-    class TqdmBatchCompletionCallback(joblib.parallel.BatchCompletionCallBack):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
+def make_recursive_func(func):
+    def wrapper(vars, dtype):
+        if isinstance(vars, list):
+            return [wrapper(x, dtype) for x in vars]
+        elif isinstance(vars, tuple):
+            return tuple([wrapper(x, dtype) for x in vars])
+        elif isinstance(vars, dict):
+            return {k: wrapper(v, dtype) for k, v in vars.items()}
+        else:
+            return func(vars, dtype)
 
-        def __call__(self, *args, **kwargs):
-            tqdm_object.update(n=self.batch_size)
-            return super().__call__(*args, **kwargs)
+    return wrapper
 
-    old_batch_callback = joblib.parallel.BatchCompletionCallBack
-    joblib.parallel.BatchCompletionCallBack = TqdmBatchCompletionCallback
-    try:
-        yield tqdm_object
-    finally:
-        joblib.parallel.BatchCompletionCallBack = old_batch_callback
-        tqdm_object.close()
 
+@make_recursive_func
+def totensor(vars, dtype):
+    if isinstance(vars, torch.Tensor):
+        return vars.unsqueeze(0).to(dtype)
+    elif isinstance(vars, np.ndarray):
+        return torch.from_numpy(vars).unsqueeze(0).to(dtype)
+    elif isinstance(vars, str):
+        return [vars]
+    elif isinstance(vars, (int, float)):
+        return torch.tensor([vars])
+    else:
+        raise NotImplementedError("invalid input type {}".format(type(vars)))

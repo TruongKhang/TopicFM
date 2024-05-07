@@ -49,7 +49,7 @@ class FPN(nn.Module):
         initial_dim = config['initial_dim']
         block_dims = config['block_dims']
 
-        self.layer0 = ConvBlock(1, initial_dim, kernel_size=7, padding=3, stride=2)
+        self.layer0 = ConvBlock(3, initial_dim, kernel_size=7, padding=3, stride=2)
         self.layer1 = self._make_layer(block, initial_dim, block_dims[0], stride=1)  # 1/2
         self.layer2 = self._make_layer(block, block_dims[0], block_dims[1], stride=2)  # 1/4
         self.layer3 = self._make_layer(block, block_dims[1], block_dims[2], stride=2)  # 1/8

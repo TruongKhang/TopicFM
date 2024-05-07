@@ -18,8 +18,6 @@ from src.utils.metrics import (
     compute_pose_errors,
     aggregate_metrics
 )
-from src.utils.plotting import make_matching_figures
-from src.utils.comm import gather, all_gather
 from src.utils.misc import lower_config, flattenList
 from src.utils.profiler import PassThroughProfiler
 
@@ -51,194 +49,112 @@ class PL_Trainer(pl.LightningModule):
         
         # Testing
         self.dump_dir = dump_dir
+
+        self.validation_step_outputs = {}
         
     def configure_optimizers(self):
-        # FIXME: The scheduler did not work properly when `--resume_from_checkpoint`
-        optimizer = build_optimizer(self, self.config)
-        scheduler = build_scheduler(self.config, optimizer)
-        return [optimizer], [scheduler]
-    
-    def optimizer_step(self, epoch, batch_idx, optimizer, optimizer_idx, optimizer_closure, on_tpu, using_lbfgs):
         # learning rate warm up
         warmup_step = self.config.TRAINER.WARMUP_STEP
-        if self.trainer.global_step < warmup_step:
+        lr = self.config.TRAINER.TRUE_LR
+        if self.global_step < warmup_step:
             if self.config.TRAINER.WARMUP_TYPE == 'linear':
                 base_lr = self.config.TRAINER.WARMUP_RATIO * self.config.TRAINER.TRUE_LR
-                lr = base_lr + \
-                    (self.trainer.global_step / self.config.TRAINER.WARMUP_STEP) * \
-                    abs(self.config.TRAINER.TRUE_LR - base_lr)
-                for pg in optimizer.param_groups:
-                    pg['lr'] = lr
+                lr = base_lr + (self.global_step / warmup_step) * abs(self.config.TRAINER.TRUE_LR - base_lr)
             elif self.config.TRAINER.WARMUP_TYPE == 'constant':
                 pass
             else:
                 raise ValueError(f'Unknown lr warm-up strategy: {self.config.TRAINER.WARMUP_TYPE}')
-
-        # update params
-        optimizer.step(closure=optimizer_closure)
-        optimizer.zero_grad()
-    
-    def _trainval_inference(self, batch):
-        batch["epoch_idx"] = self.trainer.current_epoch + self.epoch_start
-        with self.profiler.profile("Compute coarse supervision"):
-            compute_supervision_coarse(batch, self.config)
-        
-        with self.profiler.profile("TopicFM"):
-            self.matcher(batch)
-        
-        with self.profiler.profile("Compute fine supervision"):
-            compute_supervision_fine(batch, self.config)
-            
-        with self.profiler.profile("Compute losses"):
-            self.loss(batch)
-    
-    def _compute_metrics(self, batch):
-        with self.profiler.profile("Copmute metrics"):
-            compute_symmetrical_epipolar_errors(batch)  # compute epi_errs for each match
-            compute_pose_errors(batch, self.config)  # compute R_errs, t_errs, pose_errs for each pair
-
-            rel_pair_names = list(zip(*batch['pair_names']))
-            bs = batch['image0'].size(0)
-            metrics = {
-                # to filter duplicate pairs caused by DistributedSampler
-                'identifiers': ['#'.join(rel_pair_names[b]) for b in range(bs)],
-                'epi_errs': [batch['epi_errs'][batch['m_bids'] == b].cpu().numpy() for b in range(bs)],
-                'R_errs': batch['R_errs'],
-                't_errs': batch['t_errs'],
-                'inliers': batch['inliers']}
-            ret_dict = {'metrics': metrics}
-        return ret_dict, rel_pair_names
-    
-    def training_step(self, batch, batch_idx):
-        self._trainval_inference(batch)
-        
-        # logging
-        if self.trainer.global_rank == 0 and self.global_step % self.trainer.log_every_n_steps == 0:
-            # scalars
-            for k, v in batch['loss_scalars'].items():
-                self.logger.experiment.add_scalar(f'train/{k}', v, self.global_step)
-
-            # figures
-            if self.config.TRAINER.ENABLE_PLOTTING:
-                compute_symmetrical_epipolar_errors(batch)  # compute epi_errs for each match
-                figures = make_matching_figures(batch, self.config, self.config.TRAINER.PLOT_MODE)
-                for k, v in figures.items():
-                    self.logger.experiment.add_figure(f'train_match/{k}', v, self.global_step)
-
-        return {'loss': batch['loss']}
-
-    def training_epoch_end(self, outputs):
-        avg_loss = torch.stack([x['loss'] for x in outputs]).mean()
-        if self.trainer.global_rank == 0:
-            self.logger.experiment.add_scalar(
-                'train/avg_loss_on_epoch', avg_loss,
-                global_step=self.current_epoch)
-    
-    def validation_step(self, batch, batch_idx):
-        self._trainval_inference(batch)
-        
-        ret_dict, _ = self._compute_metrics(batch)
-        
-        val_plot_interval = max(self.trainer.num_val_batches[0] // self.n_vals_plot, 1)
-        figures = {self.config.TRAINER.PLOT_MODE: []}
-        if batch_idx % val_plot_interval == 0:
-            figures = make_matching_figures(batch, self.config, mode=self.config.TRAINER.PLOT_MODE)
+        optimizer = build_optimizer(self, self.config, lr)
+        scheduler = build_scheduler(self.config, optimizer)
 
         return {
-            **ret_dict,
-            'loss_scalars': batch['loss_scalars'],
-            'figures': figures,
+            "optimizer": optimizer,
+            "lr_scheduler": scheduler
         }
+    
+    def _trainval_inference(self, batch):
+        for data_dict in batch:
+            data_dict["epoch_idx"] = self.trainer.current_epoch + self.epoch_start
+
+            with self.profiler.profile("Compute coarse supervision"):
+                compute_supervision_coarse(data_dict, self.config)
+            
+            with self.profiler.profile("TopicFM"):
+                self.matcher(data_dict)
+            
+            with self.profiler.profile("Compute fine supervision"):
+                compute_supervision_fine(data_dict, self.config)
         
-    def validation_epoch_end(self, outputs):
-        # handle multiple validation sets
-        multi_outputs = [outputs] if not isinstance(outputs[0], (list, tuple)) else outputs
+        with self.profiler.profile("Compute losses"):
+            loss, _ = self.loss(batch)
+        
+        return loss
+    
+    def _compute_metrics(self, batch):
+        list_metrics = []
+        with self.profiler.profile("Copmute metrics"):
+            for data_dict in batch:
+                compute_symmetrical_epipolar_errors(data_dict)  # compute epi_errs for each match
+                compute_pose_errors(data_dict, self.config)  # compute R_errs, t_errs, pose_errs for each pair
+
+                rel_pair_names = list(zip(*data_dict['pair_names']))
+                bs = data_dict['image0'].size(0)
+                metrics = {
+                    'identifiers': ['#'.join(rel_pair_names[b]) for b in range(bs)],
+                    'epi_errs': [data_dict['epi_errs'][data_dict['m_bids'] == b].cpu().numpy() for b in range(bs)],
+                    'R_errs': data_dict['R_errs'],
+                    't_errs': data_dict['t_errs'],
+                    'inliers': data_dict['inliers']}
+                list_metrics.append(metrics)
+
+        ret_dict = {k: [] for k in list_metrics[0].keys()}
+        for metrics in list_metrics:
+            for k, v in metrics.items():
+                ret_dict[k] += v
+
+        return {"metrics": ret_dict}, rel_pair_names
+    
+    def training_step(self, batch_data, batch_idx):
+        if isinstance(batch_data, torch.Tensor):
+            batch_data = [batch_data]
+
+        combined_loss = 0
+        for batch in batch_data:
+            loss = self._trainval_inference(batch)
+            combined_loss = combined_loss + loss
+        
+        combined_loss = combined_loss / len(batch_data)
+        
+        self.log("loss", combined_loss, on_step=True, on_epoch=True, prog_bar=True, 
+                 logger=True, sync_dist=True, batch_size=len(batch_data))
+
+        return {"loss": combined_loss}
+
+    def validation_step(self, batch, batch_idx, dataloader_idx=0):
+        loss = self._trainval_inference(batch)
+        
+        ret_dict, _ = self._compute_metrics(batch)
+
+        if dataloader_idx not in self.validation_step_outputs:
+            self.validation_step_outputs[dataloader_idx] = [ret_dict]
+        else:
+            self.validation_step_outputs[dataloader_idx].append(ret_dict)
+
+        return {
+            **ret_dict
+        }
+
+    def on_validation_epoch_end(self):
         multi_val_metrics = defaultdict(list)
-        
-        for valset_idx, outputs in enumerate(multi_outputs):
-            # since pl performs sanity_check at the very begining of the training
-            cur_epoch = self.trainer.current_epoch
-            if not self.trainer.resume_from_checkpoint and self.trainer.sanity_checking:
-                cur_epoch = -1
-
-            # 1. loss_scalars: dict of list, on cpu
-            _loss_scalars = [o['loss_scalars'] for o in outputs]
-            loss_scalars = {k: flattenList(all_gather([_ls[k] for _ls in _loss_scalars])) for k in _loss_scalars[0]}
-
-            # 2. val metrics: dict of list, numpy
+        for idx, outputs in self.validation_step_outputs.items():
             _metrics = [o['metrics'] for o in outputs]
-            metrics = {k: flattenList(all_gather(flattenList([_me[k] for _me in _metrics]))) for k in _metrics[0]}
-            # NOTE: all ranks need to `aggregate_merics`, but only log at rank-0 
+            metrics = {k: flattenList([_me[k] for _me in _metrics]) for k in _metrics[0]}
             val_metrics_4tb = aggregate_metrics(metrics, self.config.TRAINER.EPI_ERR_THR)
             for thr in [5, 10, 20]:
-                multi_val_metrics[f'auc@{thr}'].append(val_metrics_4tb[f'auc@{thr}'])
-            
-            # 3. figures
-            _figures = [o['figures'] for o in outputs]
-            figures = {k: flattenList(gather(flattenList([_me[k] for _me in _figures]))) for k in _figures[0]}
-
-            # tensorboard records only on rank 0
-            if self.trainer.global_rank == 0:
-                for k, v in loss_scalars.items():
-                    mean_v = torch.stack(v).mean()
-                    self.logger.experiment.add_scalar(f'val_{valset_idx}/avg_{k}', mean_v, global_step=cur_epoch)
-
-                for k, v in val_metrics_4tb.items():
-                    self.logger.experiment.add_scalar(f"metrics_{valset_idx}/{k}", v, global_step=cur_epoch)
-                
-                for k, v in figures.items():
-                    if self.trainer.global_rank == 0:
-                        for plot_idx, fig in enumerate(v):
-                            self.logger.experiment.add_figure(
-                                f'val_match_{valset_idx}/{k}/pair-{plot_idx}', fig, cur_epoch, close=True)
-            plt.close('all')
-
-        for thr in [5, 10, 20]:
-            # log on all ranks for ModelCheckpoint callback to work properly
-            self.log(f'auc@{thr}', torch.tensor(np.mean(multi_val_metrics[f'auc@{thr}'])), sync_dist=True)  # ckpt monitors on this
-
-    def test_step(self, batch, batch_idx):
-        with self.profiler.profile("TopicFM"):
-           self.matcher(batch)
-
-        ret_dict, rel_pair_names = self._compute_metrics(batch)
-
-        with self.profiler.profile("dump_results"):
-            if self.dump_dir is not None:
-                # dump results for further analysis
-                keys_to_save = {'mkpts0_f', 'mkpts1_f', 'mconf', 'epi_errs'}
-                pair_names = list(zip(*batch['pair_names']))
-                bs = batch['image0'].shape[0]
-                dumps = []
-                for b_id in range(bs):
-                    item = {}
-                    mask = batch['m_bids'] == b_id
-                    item['pair_names'] = pair_names[b_id]
-                    item['identifier'] = '#'.join(rel_pair_names[b_id])
-                    for key in keys_to_save:
-                        item[key] = batch[key][mask].cpu().numpy()
-                    for key in ['R_errs', 't_errs', 'inliers']:
-                        item[key] = batch[key][b_id]
-                    dumps.append(item)
-                ret_dict['dumps'] = dumps
-
-        return ret_dict
-
-    def test_epoch_end(self, outputs):
-        # metrics: dict of list, numpy
-        _metrics = [o['metrics'] for o in outputs]
-        metrics = {k: flattenList(gather(flattenList([_me[k] for _me in _metrics]))) for k in _metrics[0]}
-
-        # [{key: [{...}, *#bs]}, *#batch]
-        if self.dump_dir is not None:
-            Path(self.dump_dir).mkdir(parents=True, exist_ok=True)
-            _dumps = flattenList([o['dumps'] for o in outputs])  # [{...}, #bs*#batch]
-            dumps = flattenList(gather(_dumps))  # [{...}, #proc*#bs*#batch]
-            logger.info(f'Prediction and evaluation results will be saved to: {self.dump_dir}')
-
-        if self.trainer.global_rank == 0:
-            print(self.profiler.summary())
-            val_metrics_4tb = aggregate_metrics(metrics, self.config.TRAINER.EPI_ERR_THR)
-            logger.info('\n' + pprint.pformat(val_metrics_4tb))
-            if self.dump_dir is not None:
-                np.save(Path(self.dump_dir) / 'TopicFM_pred_eval', dumps)
+                multi_val_metrics[f'dataset{idx}_auc@{thr}'].append(val_metrics_4tb[f'auc@{thr}'])
+        
+        for idx in self.validation_step_outputs.keys():
+            for thr in [5, 10, 20]:
+                self.log(f'dataset{idx}_auc@{thr}', torch.tensor(np.mean(multi_val_metrics[f'dataset{idx}_auc@{thr}'])), sync_dist=True)
+        
+        self.validation_step_outputs.clear()

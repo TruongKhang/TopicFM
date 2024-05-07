@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 from einops.einops import rearrange
-# from fvcore.nn import FlopCountAnalysis
 
 from .backbone import build_backbone
 from .modules import FineNetwork, FinePreprocess, TopicFormer
@@ -45,16 +44,7 @@ class TopicFM(nn.Module):
             'hw0_i': data['image0'].shape[2:], 'hw1_i': data['image1'].shape[2:]
         })
 
-        if data['hw0_i'] == data['hw1_i']:  # faster & better BN convergence
-            feats_c, feats_f = self.backbone(torch.cat([data['image0'], data['image1']], dim=0))
-            (feat_c0, feat_c1), (feat_f0, feat_f1) = feats_c.split(data['bs']), feats_f.split(data['bs'])
-            # backbone_counter = FlopCountAnalysis(self.backbone, torch.cat([data['image0'], data['image1']], dim=0))
-            # backbone_flops = backbone_counter.total() / 1e9
-        else:  # handle different input shapes
-            (feat_c0, feat_f0), (feat_c1, feat_f1) = self.backbone(data['image0']), self.backbone(data['image1'])
-            # backbone_counter0 = FlopCountAnalysis(self.backbone, data['image0'])
-            # backbone_counter1 = FlopCountAnalysis(self.backbone, data['image1'])
-            # backbone_flops = backbone_counter0.total() / 1e9 + backbone_counter1.total() / 1e9
+        (feat_c0, feat_f0), (feat_c1, feat_f1) = self.backbone(data['image0']), self.backbone(data['image1'])
 
         data.update({
             'hw0_c': feat_c0.shape[2:], 'hw1_c': feat_c1.shape[2:],

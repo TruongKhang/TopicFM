@@ -2,9 +2,8 @@ import torch
 from torch.optim.lr_scheduler import MultiStepLR, CosineAnnealingLR, ExponentialLR
 
 
-def build_optimizer(model, config):
+def build_optimizer(model, config, lr):
     name = config.TRAINER.OPTIMIZER
-    lr = config.TRAINER.TRUE_LR
 
     if name == "adam":
         return torch.optim.Adam(model.parameters(), lr=lr, weight_decay=config.TRAINER.ADAM_DECAY)

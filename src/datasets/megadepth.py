@@ -7,7 +7,7 @@ from loguru import logger
 from kornia.geometry.transform import warp_perspective
 import kornia.augmentation as KA
 
-from src.utils.dataset import read_megadepth_gray, read_megadepth_depth
+from src.utils.dataset import read_megadepth_color, read_megadepth_depth
 
 
 class GeometricSequential:
@@ -80,7 +80,7 @@ class MegaDepthDataset(Dataset):
 
         # parameters for image resizing, padding and depthmap padding
         if mode == 'train':
-            assert img_resize is not None and img_padding and depth_padding
+            assert img_resize is not None and depth_padding
         self.img_resize = img_resize
         if mode == 'val':
             self.img_resize = 864
@@ -90,7 +90,7 @@ class MegaDepthDataset(Dataset):
 
         # for training LoFTR
         self.augment_fn = augment_fn if mode == 'train' else None
-        self.geometric_aug = GeometricSequential(KA.RandomAffine(degrees=90, p=0.3)) if mode == "train" else None
+        self.geometric_aug = GeometricSequential(KA.RandomAffine(degrees=90, p=0.25)) if mode == "train" else None
         self.coarse_scale = getattr(kwargs, 'coarse_scale', 0.125)
 
     def __len__(self):
@@ -98,16 +98,17 @@ class MegaDepthDataset(Dataset):
 
     def __getitem__(self, idx):
         (idx0, idx1), overlap_score, central_matches = self.pair_infos[idx]
+        covis_label = 1 if overlap_score > 0.1 else 0
 
         # read grayscale image and mask. (1, h, w) and (h, w)
         img_name0 = osp.join(self.root_dir, self.scene_info['image_paths'][idx0])
         img_name1 = osp.join(self.root_dir, self.scene_info['image_paths'][idx1])
         
         # TODO: Support augmentation & handle seeds for each worker correctly.
-        image0, mask0, scale0, _ = read_megadepth_gray(
+        image0, mask0, scale0, _ = read_megadepth_color(
             img_name0, self.img_resize, self.df, self.img_padding, None, None)
             # np.random.choice([self.augment_fn, None], p=[0.5, 0.5]))
-        image1, mask1, scale1, H_mat = read_megadepth_gray(
+        image1, mask1, scale1, H_mat = read_megadepth_color(
             img_name1, self.img_resize, self.df, self.img_padding, self.augment_fn, self.geometric_aug)
             # np.random.choice([self.augment_fn, None], p=[0.5, 0.5]))
 
@@ -156,15 +157,7 @@ class MegaDepthDataset(Dataset):
             'scene_id': self.scene_id,
             'pair_id': idx,
             'pair_names': (self.scene_info['image_paths'][idx0], self.scene_info['image_paths'][idx1]),
+            'covis_label': covis_label
         }
-
-        # for LoFTR training
-        if mask0 is not None:  # img_padding is True
-            if self.coarse_scale:
-                [ts_mask_0, ts_mask_1] = F.interpolate(torch.stack([mask0, mask1], dim=0)[None].float(),
-                                                       scale_factor=self.coarse_scale,
-                                                       mode='nearest',
-                                                       recompute_scale_factor=False)[0].bool()
-            data.update({'mask0': ts_mask_0, 'mask1': ts_mask_1})
 
         return data

@@ -7,6 +7,7 @@ from loguru import logger as loguru_logger
 
 import pytorch_lightning as pl
 from pytorch_lightning.utilities import rank_zero_only
+from pytorch_lightning.utilities.combined_loader import CombinedLoader
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 from pytorch_lightning.strategies import DDPStrategy
@@ -14,7 +15,7 @@ from pytorch_lightning.strategies import DDPStrategy
 from src.config.default import get_cfg_defaults
 from src.utils.misc import get_rank_zero_only_logger, setup_gpus
 from src.utils.profiler import build_profiler
-from src.lightning_trainer.data import MultiSceneDataModule
+from src.lightning_trainer.data_module import MultiSceneDataModule
 from src.lightning_trainer.trainer import PL_Trainer
 
 loguru_logger = get_rank_zero_only_logger(loguru_logger)
@@ -27,9 +28,15 @@ def parse_args():
     # parser.add_argument(
     #     'data_cfg_path', type=str, help='data config path')
     parser.add_argument(
-        'main_cfg_path', type=str, help='main config path')
+        '--main_cfg_path', type=str, help='main config path')
+    parser.add_argument(
+        '--main_cfg_path2', type=str, default=None, help='main config path')
     parser.add_argument(
         '--exp_name', type=str, default='default_exp_name')
+    parser.add_argument(
+        '--n_gpus', type=int, default=1, help='number of cuda devices')
+    parser.add_argument(
+        '--max_epochs', type=int, default=1, help='number of training epochs')
     parser.add_argument(
         '--batch_size', type=int, default=4, help='batch_size per gpu')
     parser.add_argument(
@@ -52,7 +59,7 @@ def parse_args():
     parser.add_argument(
         '--epoch_start', type=int, default=0)
 
-    parser = pl.Trainer.add_argparse_args(parser)
+    # parser = pl.Trainer.add_argparse_args(parser)
     return parser.parse_args()
 
 
@@ -69,23 +76,34 @@ def main():
     # TODO: Use different seeds for each dataloader workers
     # This is needed for data augmentation
     
-    # scale lr and warmup-step automatically
-    _n_gpus = setup_gpus(args.devices)
-    config.TRAINER.WORLD_SIZE = _n_gpus * args.num_nodes
-    config.TRAINER.TRUE_BATCH_SIZE = config.TRAINER.WORLD_SIZE * args.batch_size
-    _scaling = config.TRAINER.TRUE_BATCH_SIZE / config.TRAINER.CANONICAL_BS
-    config.TRAINER.SCALING = _scaling
-    config.TRAINER.TRUE_LR = config.TRAINER.CANONICAL_LR # * _scaling
-    config.TRAINER.WARMUP_STEP = math.floor(config.TRAINER.WARMUP_STEP / _scaling)
-    
-    # lightning module
-    profiler = build_profiler(args.profiler_name)
-    model = PL_Trainer(config, pretrained_ckpt=args.ckpt_path, profiler=profiler, epoch_start=args.epoch_start)
-    loguru_logger.info(f"Model LightningModule initialized!")
-    
     # lightning data
     data_module = MultiSceneDataModule(args, config)
+    data_module.setup(stage="fit")
+    train_dataloaders, val_dataloaders = [data_module.train_dataloader()], [data_module.val_dataloader()]
+    if args.main_cfg_path2 is not None:
+        config2 = get_cfg_defaults()
+        config2.merge_from_file(args.main_cfg_path2)
+        data_module2 = MultiSceneDataModule(args, config2)
+        data_module2.setup(stage="fit")
+        train_dataloaders.append(data_module2.train_dataloader())
+        val_dataloaders.append(data_module2.val_dataloader())
+    train_dataloaders = CombinedLoader(train_dataloaders, mode="max_size_cycle")
+    val_dataloaders = CombinedLoader(val_dataloaders, mode="sequential")
     loguru_logger.info(f"Model DataModule initialized!")
+
+    # scale lr and warmup-step automatically
+    _n_gpus = setup_gpus(args.n_gpus)
+    config.TRAINER.WORLD_SIZE = _n_gpus # * args.num_nodes
+    config.TRAINER.TRUE_BATCH_SIZE = config.TRAINER.WORLD_SIZE * args.batch_size
+    # _scaling = config.TRAINER.TRUE_BATCH_SIZE / config.TRAINER.CANONICAL_BS
+    # config.TRAINER.SCALING = _scaling
+    config.TRAINER.TRUE_LR = config.TRAINER.CANONICAL_LR # * _scaling
+    # config.TRAINER.WARMUP_STEP = math.floor(config.TRAINER.WARMUP_STEP / _scaling)
+
+    # lightning module
+    profiler = build_profiler(args.profiler_name)
+    model = PL_Trainer(config, profiler=profiler, epoch_start=args.epoch_start) #, pretrained_ckpt=args.ckpt_path)
+    loguru_logger.info(f"Model LightningModule initialized!")
     
     # TensorBoard Logger
     logger = TensorBoardLogger(save_dir='logs/tb_logs', name=args.exp_name, default_hp_metric=False)
@@ -93,30 +111,33 @@ def main():
     
     # Callbacks
     # TODO: update ModelCheckpoint to monitor multiple metrics
-    ckpt_callback = ModelCheckpoint(monitor='auc@10', verbose=True, save_top_k=10, mode='max',
+    ckpt_callback = ModelCheckpoint(monitor='dataset0_auc@10', verbose=True, save_top_k=10, mode='max',
                                     save_last=True,
                                     dirpath=str(ckpt_dir),
-                                    filename='{epoch}-{auc@5:.3f}-{auc@10:.3f}-{auc@20:.3f}')
+                                    filename='{epoch}-{dataset0_auc@5:.3f}-{dataset0_auc@10:.3f}-{dataset0_auc@20:.3f}-{dataset1_auc@5:.3f}-{dataset1_auc@10:.3f}-{dataset1_auc@20:.3f}')
     lr_monitor = LearningRateMonitor(logging_interval='step')
     callbacks = [lr_monitor]
     if not args.disable_ckpt:
         callbacks.append(ckpt_callback)
     
     # Lightning Trainer
-    trainer = pl.Trainer.from_argparse_args(
-        args,
+    trainer = pl.Trainer(
+        accelerator="gpu", devices=args.n_gpus, precision=32,
+        check_val_every_n_epoch=1, # log_every_n_steps=9000, 
+        limit_val_batches=1., num_sanity_val_steps=10, 
+        max_epochs=args.max_epochs, benchmark=False,
         strategy=DDPStrategy(find_unused_parameters=False),
         gradient_clip_val=config.TRAINER.GRADIENT_CLIPPING,
         callbacks=callbacks,
         logger=logger,
         sync_batchnorm=config.TRAINER.WORLD_SIZE > 0,
-        replace_sampler_ddp=False,  # use custom sampler
+        # replace_sampler_ddp=False,  # use custom sampler
         reload_dataloaders_every_n_epochs=0,  # avoid repeated samples!
         # weights_summary='full',
         profiler=profiler)
     loguru_logger.info(f"Trainer initialized!")
     loguru_logger.info(f"Start training!")
-    trainer.fit(model, datamodule=data_module)
+    trainer.fit(model, train_dataloaders, val_dataloaders, ckpt_path=args.ckpt_path)
 
 
 if __name__ == '__main__':

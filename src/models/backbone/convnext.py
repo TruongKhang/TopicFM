@@ -23,13 +23,14 @@ class Block(nn.Module):
         drop_path (float): Stochastic depth rate. Default: 0.0
         layer_scale_init_value (float): Init value for Layer Scale. Default: 1e-6.
     """
-    def __init__(self, dim, drop_path=0., layer_scale_init_value=1e-6, kernel_size=3, padding=1, res_op=True):
+    def __init__(self, dim, drop_path=0., layer_scale_init_value=0, kernel_size=5, padding=2, res_op=True):
         super().__init__()
         self.dwconv = nn.Conv2d(dim, dim, kernel_size=kernel_size, padding=padding, groups=dim) # depthwise conv
-        self.norm = LayerNorm(dim, eps=1e-6)
-        self.pwconv1 = nn.Linear(dim, 2 * dim) # pointwise/1x1 convs, implemented with linear layers
+        self.norm1 = nn.InstanceNorm2d(dim, eps=1e-6) # LayerNorm(dim, eps=1e-6)
+        self.pwconv1 = nn.Conv2d(dim, 2 * dim, kernel_size=1) # nn.Linear(dim, 2 * dim) # pointwise/1x1 convs, implemented with linear layers
         self.act = nn.GELU()
-        self.pwconv2 = nn.Linear(2 * dim, dim)
+        self.norm2 = GRN(2 * dim)
+        self.pwconv2 = nn.Conv2d(2 * dim, dim, kernel_size=1) # nn.Linear(2 * dim, dim)
         self.gamma = nn.Parameter(layer_scale_init_value * torch.ones((dim)), 
                                     requires_grad=True) if layer_scale_init_value > 0 else None
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
@@ -38,14 +39,15 @@ class Block(nn.Module):
     def forward(self, x):
         input = x
         x = self.dwconv(x)
-        x = x.permute(0, 2, 3, 1) # (N, C, H, W) -> (N, H, W, C)
-        x = self.norm(x)
+        # x = x.permute(0, 2, 3, 1) # (N, C, H, W) -> (N, H, W, C)
+        x = self.norm1(x)
         x = self.pwconv1(x)
         x = self.act(x)
+        x = self.norm2(x)
         x = self.pwconv2(x)
         if self.gamma is not None:
             x = self.gamma * x
-        x = x.permute(0, 3, 1, 2) # (N, H, W, C) -> (N, C, H, W)
+        # x = x.permute(0, 3, 1, 2) # (N, H, W, C) -> (N, C, H, W)
 
         x = input + self.drop_path(x) if self.res_op else self.drop_path(x)
         return x
@@ -68,8 +70,8 @@ class ConvNeXtFPN(nn.Module):
         self.in_planes = initial_dim
 
         # Networks
-        self.conv1 = nn.Conv2d(1, initial_dim, kernel_size=7, stride=2, padding=3, bias=False)
-        self.bn1 = LayerNorm(initial_dim, eps=1e-6, data_format="channels_first")
+        self.conv1 = nn.Conv2d(3, initial_dim, kernel_size=7, stride=2, padding=3, bias=False)
+        self.bn1 = nn.InstanceNorm2d(initial_dim, eps=1e-6) # LayerNorm(initial_dim, eps=1e-6, data_format="channels_first")
 
         self.layer1 = block(block_dims[0], drop_path=0., layer_scale_init_value=0)  # 1/2
         self.layer2 = self._make_layer(block, block_dims[1], stride=2)  # 1/4
@@ -81,12 +83,14 @@ class ConvNeXtFPN(nn.Module):
         self.layer3_outconv2 = nn.Sequential(
             block(block_dims[2], drop_path=0., layer_scale_init_value=0),
             block(block_dims[2], drop_path=0., layer_scale_init_value=0),
+            # block(block_dims[2], drop_path=0., layer_scale_init_value=0),
             # ConvBlock(block_dims[2], block_dims[2]),
             # conv3x3(block_dims[2], block_dims[2]),
         )
         self.norm_outlayer3 = LayerNorm(block_dims[2], eps=1e-6, data_format="channels_first")
         self.layer2_outconv = nn.Conv2d(block_dims[2], block_dims[1], kernel_size=1, padding=0, bias=False)
         self.layer2_outconv2 = nn.Sequential(
+            block(block_dims[1], drop_path=0., layer_scale_init_value=0),
             block(block_dims[1], drop_path=0., layer_scale_init_value=0),
             # ConvBlock(block_dims[2], block_dims[1]),
             # conv3x3(block_dims[1], block_dims[1]),
@@ -95,6 +99,7 @@ class ConvNeXtFPN(nn.Module):
         self.layer1_outconv2 = nn.Sequential(
             block(block_dims[0], drop_path=0., layer_scale_init_value=0),
             block(block_dims[0], drop_path=0., layer_scale_init_value=0),
+            # block(block_dims[0], drop_path=0., layer_scale_init_value=0),
             # ConvBlock(block_dims[1], block_dims[0]),
             # conv3x3(block_dims[0], block_dims[0]),
         )
@@ -108,8 +113,7 @@ class ConvNeXtFPN(nn.Module):
 
     def _make_layer(self, block, dim, stride=1):
         layer1 = nn.Sequential(nn.Conv2d(self.in_planes, dim, kernel_size=3, padding=1, stride=stride, bias=False),
-                               LayerNorm(dim, eps=1e-6,
-                                         data_format="channels_first"))  # block(self.in_planes, dim, stride=stride)
+                               nn.InstanceNorm2d(dim, eps=1e-6)) # LayerNorm(dim, eps=1e-6, data_format="channels_first"))
         layer2 = block(dim, drop_path=0., layer_scale_init_value=0)  # block(dim, dim, stride=1)
         layers = (layer1, layer2)
 
@@ -163,3 +167,16 @@ class LayerNorm(nn.Module):
             x = self.weight[:, None, None] * x + self.bias[:, None, None]
             return x
 
+
+class GRN(nn.Module):
+    """ GRN (Global Response Normalization) layer
+    """
+    def __init__(self, dim):
+        super().__init__()
+        self.gamma = nn.Parameter(torch.zeros(1, dim, 1, 1))
+        self.beta = nn.Parameter(torch.zeros(1, dim, 1, 1))
+
+    def forward(self, x):
+        Gx = torch.norm(x, p=2, dim=(2,3), keepdim=True)
+        Nx = Gx / (Gx.mean(dim=1, keepdim=True) + 1e-6)
+        return self.gamma * (x * Nx) + self.beta + x

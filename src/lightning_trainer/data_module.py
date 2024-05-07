@@ -1,34 +1,21 @@
-import os
-import math
-from collections import abc
-from loguru import logger
-from torch.utils.data.dataset import Dataset
+from abc import ABC
 from tqdm import tqdm
 from os import path as osp
-from pathlib import Path
-from joblib import Parallel, delayed
-
-import pytorch_lightning as pl
-from torch import distributed as dist
+import torch
 from torch.utils.data import (
-    Dataset,
     DataLoader,
     ConcatDataset,
-    DistributedSampler,
-    RandomSampler,
-    dataloader
 )
 
 from src.utils.augment import build_augmentor
-from src.utils.dataloader import get_local_split
-from src.utils.misc import tqdm_joblib
-from src.utils import comm
 from src.datasets.megadepth import MegaDepthDataset
 from src.datasets.scannet import ScanNetDataset
+from src.datasets.blendedmvs import BlendedMVSDataset
 from src.datasets.sampler import RandomConcatSampler
+from src.utils.misc import totensor
 
 
-class MultiSceneDataModule(pl.LightningDataModule):
+class MultiSceneDataModule(ABC):
     """ 
     For distributed training, each training process is assgined
     only a part of the training scenes to reduce memory overhead.
@@ -75,13 +62,16 @@ class MultiSceneDataModule(pl.LightningDataModule):
         self.train_loader_params = {
             'batch_size': args.batch_size,
             'num_workers': args.num_workers,
-            'pin_memory': getattr(args, 'pin_memory', True)
+            'pin_memory': getattr(args, 'pin_memory', True),
+            'collate_fn': lambda batches: totensor(batches, torch.float32),
+            'drop_last': True
         }
         self.val_loader_params = {
             'batch_size': 1,
             'shuffle': False,
             'num_workers': args.num_workers,
-            'pin_memory': getattr(args, 'pin_memory', True)
+            'pin_memory': getattr(args, 'pin_memory', True),
+            'collate_fn': lambda batches: totensor(batches, torch.float32)
         }
         self.test_loader_params = {
             'batch_size': 1,
@@ -110,15 +100,6 @@ class MultiSceneDataModule(pl.LightningDataModule):
         """
 
         assert stage in ['fit', 'validate', 'test'], "stage must be either fit or test"
-
-        try:
-            self.world_size = dist.get_world_size()
-            self.rank = dist.get_rank()
-            logger.info(f"[rank:{self.rank}] world_size: {self.world_size}")
-        except AssertionError as ae:
-            self.world_size = 1
-            self.rank = 0
-            logger.warning(str(ae) + " (set wolrd_size=1 and rank=0)")
 
         if stage == 'fit':
             self.train_dataset = self._setup_dataset(
@@ -152,7 +133,7 @@ class MultiSceneDataModule(pl.LightningDataModule):
                     mode='val',
                     min_overlap_score=self.min_overlap_score_test,
                     pose_dir=self.val_pose_root)
-            logger.info(f'[rank:{self.rank}] Train & Val Dataset loaded!')
+            # logger.info(f'[rank:{self.rank}] Train & Val Dataset loaded!')
         elif stage == 'validate':
             if isinstance(self.val_list_path, (list, tuple)):
                 self.val_dataset = []
@@ -176,7 +157,7 @@ class MultiSceneDataModule(pl.LightningDataModule):
                     mode='val',
                     min_overlap_score=self.min_overlap_score_test,
                     pose_dir=self.val_pose_root)
-            logger.info(f'[rank:{self.rank}] Val Dataset loaded!')
+            # logger.info(f'[rank:{self.rank}] Val Dataset loaded!')
         else:  # stage == 'test
             self.test_dataset = self._setup_dataset(
                 self.test_data_root,
@@ -186,7 +167,7 @@ class MultiSceneDataModule(pl.LightningDataModule):
                 mode='test',
                 min_overlap_score=self.min_overlap_score_test,
                 pose_dir=self.test_pose_root)
-            logger.info(f'[rank:{self.rank}]: Test Dataset loaded!')
+            # logger.info(f'[rank:{self.rank}]: Test Dataset loaded!')
 
     def _setup_dataset(self,
                        data_root,
@@ -197,17 +178,15 @@ class MultiSceneDataModule(pl.LightningDataModule):
                        min_overlap_score=0.,
                        pose_dir=None):
         """ Setup train / val / test set"""
+        # if str(self.trainval_data_source).lower() == 'blendedmvs':
+        #     return BlendedMVSDataset(data_root, scene_list_path, mode=mode, augment_fn=self.augment_fn)
+
         with open(scene_list_path, 'r') as f:
             npz_names = [name.split()[0] for name in f.readlines()]
 
-        if mode == 'train':
-            local_npz_names = get_local_split(npz_names, self.world_size, self.rank, self.seed)
-        else:
-            local_npz_names = npz_names
-        logger.info(f'[rank {self.rank}]: {len(local_npz_names)} scene(s) assigned.')
+        local_npz_names = npz_names
         
-        dataset_builder = self._build_concat_dataset
-        return dataset_builder(data_root, local_npz_names, split_npz_root, intri_path,
+        return self._build_concat_dataset(data_root, local_npz_names, split_npz_root, intri_path,
                                 mode=mode, min_overlap_score=min_overlap_score, pose_dir=pose_dir)
 
     def _build_concat_dataset(
@@ -225,9 +204,7 @@ class MultiSceneDataModule(pl.LightningDataModule):
         data_source = self.trainval_data_source if mode in ['train', 'val'] else self.test_data_source
         if str(data_source).lower() == 'megadepth':
             npz_names = [f'{n}.npz' for n in npz_names]
-        for npz_name in tqdm(npz_names,
-                             desc=f'[rank:{self.rank}] loading {mode} datasets',
-                             disable=int(self.rank) != 0):
+        for npz_name in tqdm(npz_names):
             # `ScanNetDataset`/`MegaDepthDataset` load all data from npz_path when initialized, which might take time.
             npz_path = osp.join(npz_dir, npz_name)
             if data_source == 'ScanNet':
@@ -251,14 +228,16 @@ class MultiSceneDataModule(pl.LightningDataModule):
                                      depth_padding=self.mgdpt_depth_pad,
                                      augment_fn=augment_fn,
                                      coarse_scale=self.coarse_scale))
+            elif data_source == 'BlendedMVS':
+                datasets.append(BlendedMVSDataset(data_root, [npz_name], mode=mode, augment_fn=self.augment_fn))
             else:
                 raise NotImplementedError()
         return ConcatDataset(datasets)
 
     def train_dataloader(self):
         """ Build training dataloader for ScanNet / MegaDepth. """
-        assert self.data_sampler in ['scene_balance']
-        logger.info(f'[rank:{self.rank}/{self.world_size}]: Train Sampler and DataLoader re-init (should not re-init between epochs!).')
+        # assert self.data_sampler in ['scene_balance']
+        # logger.info(f'[rank:{self.rank}/{self.world_size}]: Train Sampler and DataLoader re-init (should not re-init between epochs!).')
         if self.data_sampler == 'scene_balance':
             sampler = RandomConcatSampler(self.train_dataset,
                                           self.n_samples_per_subset,
@@ -271,22 +250,18 @@ class MultiSceneDataModule(pl.LightningDataModule):
     
     def val_dataloader(self):
         """ Build validation dataloader for ScanNet / MegaDepth. """
-        logger.info(f'[rank:{self.rank}/{self.world_size}]: Val Sampler and DataLoader re-init.')
-        if not isinstance(self.val_dataset, abc.Sequence):
-            sampler = DistributedSampler(self.val_dataset, shuffle=False)
-            return DataLoader(self.val_dataset, sampler=sampler, **self.val_loader_params)
-        else:
-            dataloaders = []
-            for dataset in self.val_dataset:
-                sampler = DistributedSampler(dataset, shuffle=False)
-                dataloaders.append(DataLoader(dataset, sampler=sampler, **self.val_loader_params))
-            return dataloaders
+        # logger.info(f'[rank:{self.rank}/{self.world_size}]: Val Sampler and DataLoader re-init.')
+        # if not isinstance(self.val_dataset, abc.Sequence):
+        # sampler = DistributedSampler(self.val_dataset, shuffle=False)
+        return DataLoader(self.val_dataset, **self.val_loader_params)
+        # else:
+        #     dataloaders = []
+        #     for dataset in self.val_dataset:
+        #         sampler = DistributedSampler(dataset, shuffle=False)
+        #         dataloaders.append(DataLoader(dataset, sampler=sampler, **self.val_loader_params))
+        #     return dataloaders
 
     def test_dataloader(self, *args, **kwargs):
-        logger.info(f'[rank:{self.rank}/{self.world_size}]: Test Sampler and DataLoader re-init.')
-        sampler = DistributedSampler(self.test_dataset, shuffle=False)
-        return DataLoader(self.test_dataset, sampler=sampler, **self.test_loader_params)
-
-
-def _build_dataset(dataset: Dataset, *args, **kwargs):
-    return dataset(*args, **kwargs)
+        # logger.info(f'[rank:{self.rank}/{self.world_size}]: Test Sampler and DataLoader re-init.')
+        # sampler = DistributedSampler(self.test_dataset, shuffle=False)
+        return DataLoader(self.test_dataset, **self.test_loader_params)
