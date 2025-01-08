@@ -89,13 +89,12 @@ Runtime report at the image resolution of (640, 480) (measured on NVIDIA TITAN V
 ## Citations
 If you find this code useful, please cite the following works:
 
-    @misc{giang2023topicfm,
-      title={TopicFM+: Boosting Accuracy and Efficiency of Topic-Assisted Feature Matching}, 
-      author={Khang Truong Giang and Soohwan Song and Sungho Jo},
-      year={2023},
-      eprint={2307.00485},
-      archivePrefix={arXiv},
-      primaryClass={cs.CV}
+    @article{giang2024topicfm+,
+      title={Topicfm+: Boosting accuracy and efficiency of topic-assisted feature matching},
+      author={Giang, Khang Truong and Song, Soohwan and Jo, Sungho},
+      journal={IEEE Transactions on Image Processing},
+      year={2024},
+      publisher={IEEE}
     }
 
 or
