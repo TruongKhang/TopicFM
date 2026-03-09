@@ -1,3 +1,35 @@
+
+<div align="right">
+  <details>
+    <summary >🌐 Language</summary>
+    <div>
+      <div align="center">
+        <a href="https://openaitx.github.io/view.html?user=TruongKhang&project=TopicFM&lang=en">English</a>
+        | <a href="https://openaitx.github.io/view.html?user=TruongKhang&project=TopicFM&lang=zh-CN">简体中文</a>
+        | <a href="https://openaitx.github.io/view.html?user=TruongKhang&project=TopicFM&lang=zh-TW">繁體中文</a>
+        | <a href="https://openaitx.github.io/view.html?user=TruongKhang&project=TopicFM&lang=ja">日本語</a>
+        | <a href="https://openaitx.github.io/view.html?user=TruongKhang&project=TopicFM&lang=ko">한국어</a>
+        | <a href="https://openaitx.github.io/view.html?user=TruongKhang&project=TopicFM&lang=hi">हिन्दी</a>
+        | <a href="https://openaitx.github.io/view.html?user=TruongKhang&project=TopicFM&lang=th">ไทย</a>
+        | <a href="https://openaitx.github.io/view.html?user=TruongKhang&project=TopicFM&lang=fr">Français</a>
+        | <a href="https://openaitx.github.io/view.html?user=TruongKhang&project=TopicFM&lang=de">Deutsch</a>
+        | <a href="https://openaitx.github.io/view.html?user=TruongKhang&project=TopicFM&lang=es">Español</a>
+        | <a href="https://openaitx.github.io/view.html?user=TruongKhang&project=TopicFM&lang=it">Italiano</a>
+        | <a href="https://openaitx.github.io/view.html?user=TruongKhang&project=TopicFM&lang=ru">Русский</a>
+        | <a href="https://openaitx.github.io/view.html?user=TruongKhang&project=TopicFM&lang=pt">Português</a>
+        | <a href="https://openaitx.github.io/view.html?user=TruongKhang&project=TopicFM&lang=nl">Nederlands</a>
+        | <a href="https://openaitx.github.io/view.html?user=TruongKhang&project=TopicFM&lang=pl">Polski</a>
+        | <a href="https://openaitx.github.io/view.html?user=TruongKhang&project=TopicFM&lang=ar">العربية</a>
+        | <a href="https://openaitx.github.io/view.html?user=TruongKhang&project=TopicFM&lang=fa">فارسی</a>
+        | <a href="https://openaitx.github.io/view.html?user=TruongKhang&project=TopicFM&lang=tr">Türkçe</a>
+        | <a href="https://openaitx.github.io/view.html?user=TruongKhang&project=TopicFM&lang=vi">Tiếng Việt</a>
+        | <a href="https://openaitx.github.io/view.html?user=TruongKhang&project=TopicFM&lang=id">Bahasa Indonesia</a>
+        | <a href="https://openaitx.github.io/view.html?user=TruongKhang&project=TopicFM&lang=as">অসমীয়া</
+      </div>
+    </div>
+  </details>
+</div>
+
 # TopicFM+: Boosting Accuracy and Efficiency of Topic-Assisted Feature Matching 
     
 This code implements [TopicFM+](https://arxiv.org/abs/2307.00485), which is an extension of [TopicFM](https://arxiv.org/abs/2207.00328). For the implementation of previous version TopicFM, please checkout the `aaai23_ver` branch.
